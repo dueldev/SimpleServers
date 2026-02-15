@@ -1,0 +1,41 @@
+appId: com.simpleservers.desktop
+productName: SimpleServers
+copyright: Copyright © 2026
+asar: true
+generateUpdatesFilesForAllChannels: true
+
+directories:
+  output: ../../release/desktop
+
+files:
+  - dist/**
+  - package.json
+
+extraResources:
+  - from: ../api/dist
+    to: api
+    filter:
+      - "**/*"
+  - from: ../web/dist
+    to: web
+    filter:
+      - "**/*"
+
+mac:
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - dmg
+    - zip
+
+win:
+  target:
+    - nsis
+
+linux:
+  target:
+    - AppImage
+    - deb

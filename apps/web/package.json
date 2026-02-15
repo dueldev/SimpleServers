@@ -1,0 +1,27 @@
+{
+  "name": "@simpleservers/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'lint not configured yet'",
+    "format": "echo 'format not configured yet'"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "@playwright/test": "^1.55.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5"
+  }
+}
