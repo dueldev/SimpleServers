@@ -2,7 +2,7 @@
 
 SimpleServers ships desktop artifacts via Electron Builder and GitHub Actions.
 
-Canonical repository: `https://github.com/dueldev/SimpleServers`
+Canonical repository: `https://github.com/charlesshaw3/SimpleServers`
 
 ## Workflows
 
@@ -92,3 +92,8 @@ Default log paths:
 - macOS: `~/Library/Application Support/SimpleServers/desktop.log`
 - Windows: `%APPDATA%/SimpleServers/desktop.log`
 - Linux: `${XDG_CONFIG_HOME:-~/.config}/SimpleServers/desktop.log`
+
+## Recent Release Notes
+
+- `v0.1.9`
+  - Fixed packaged desktop renderer asset path resolution by using a relative web build base (`./`), preventing blank windows on macOS DMG installs.
