@@ -1,6 +1,6 @@
 {
   "name": "simpleservers-desktop",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "private": true,
   "description": "SimpleServers desktop shell",
   "author": {
@@ -9,7 +9,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/charlesshaw3/SimpleServers.git"
+    "url": "https://github.com/dueldev/SimpleServers.git"
   },
   "main": "dist/main.js",
   "type": "module",

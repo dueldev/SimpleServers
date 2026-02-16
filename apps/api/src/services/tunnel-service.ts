@@ -49,6 +49,9 @@ type PlayitRunDataResult = {
   status: "success" | "error" | "fail";
   data: {
     tunnels?: Array<{
+      id?: string;
+      internal_id?: number;
+      name?: string;
       display_address: string;
       port_type: PlayitPortType;
       disabled_reason?: string | null;
@@ -63,6 +66,13 @@ type PlayitRunDataResult = {
       status_msg?: string;
     }>;
   } | null;
+};
+
+type PlayitTunnelBinding = {
+  playitTunnelId?: string;
+  playitInternalId?: number;
+  playitTunnelName?: string;
+  playitSecretPath?: string;
 };
 
 export class TunnelService {
@@ -113,7 +123,7 @@ export class TunnelService {
       };
     }
 
-    const config = JSON.parse(tunnel.configJson || "{}") as {
+    const config = this.parseTunnelConfig(tunnel) as {
       command?: string;
       args?: string[];
     };
@@ -201,7 +211,7 @@ export class TunnelService {
       return;
     }
 
-    const config = JSON.parse(tunnel.configJson || "{}") as {
+    const config = this.parseTunnelConfig(tunnel) as {
       command?: string;
       args?: string[];
     };
@@ -323,7 +333,7 @@ export class TunnelService {
 
     try {
       const playitCommand = await this.resolvePlayitCommandForSync(tunnel);
-      const secret = await this.resolvePlayitSecret(playitCommand);
+      const secret = await this.resolvePlayitSecret(tunnel, playitCommand);
       if (!secret) {
         store.updateTunnelStatus(tunnel.id, "pending");
         this.setPlayitSyncState(tunnel.id, {
@@ -359,6 +369,8 @@ export class TunnelService {
         });
         return { synced: false, pendingReason: "playit returned an invalid tunnel address" };
       }
+
+      this.persistPlayitTunnelBinding(tunnel, tunnelMatch);
 
       if (endpoint.host !== tunnel.publicHost || endpoint.port !== tunnel.publicPort) {
         store.updateTunnelEndpoint(tunnel.id, {
@@ -446,7 +458,7 @@ export class TunnelService {
 
     const command = await this.resolvePlayitCommandForSync(tunnel);
     const commandAvailable = Boolean(command && this.commandExists(command));
-    const secret = await this.resolvePlayitSecret(command);
+    const secret = await this.resolvePlayitSecret(tunnel, command);
     const authConfigured = Boolean(secret);
     const sync = this.getPlayitSyncState(tunnel.id);
     const nextAttemptAt = sync.nextAttemptAt;
@@ -493,7 +505,7 @@ export class TunnelService {
       return runtimeCommand;
     }
 
-    const config = JSON.parse(tunnel.configJson || "{}") as { command?: string };
+    const config = this.parseTunnelConfig(tunnel) as { command?: string };
     const configuredCommand = config.command?.trim();
     if (configuredCommand && this.commandExists(configuredCommand)) {
       return configuredCommand;
@@ -506,7 +518,15 @@ export class TunnelService {
     return null;
   }
 
-  private async resolvePlayitSecret(playitCommand: string | null): Promise<string | null> {
+  private async resolvePlayitSecret(tunnel: TunnelRecord, playitCommand: string | null): Promise<string | null> {
+    const tunnelSecretPath = this.getPlayitTunnelBinding(tunnel).playitSecretPath;
+    if (tunnelSecretPath) {
+      const fromTunnelConfig = readPlayitSecretFile(tunnelSecretPath);
+      if (fromTunnelConfig) {
+        return fromTunnelConfig;
+      }
+    }
+
     const explicitSecret = process.env.PLAYIT_SECRET?.trim();
     if (explicitSecret) {
       return explicitSecret;
@@ -565,6 +585,105 @@ export class TunnelService {
     });
   }
 
+  private parseTunnelConfig(tunnel: TunnelRecord): Record<string, unknown> {
+    try {
+      const parsed = JSON.parse(tunnel.configJson || "{}");
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return {};
+      }
+      return parsed as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+
+  private getPlayitTunnelBinding(tunnel: TunnelRecord): PlayitTunnelBinding {
+    const config = this.parseTunnelConfig(tunnel);
+    const playitTunnelId =
+      typeof config.playitTunnelId === "string" && config.playitTunnelId.trim().length > 0 ? config.playitTunnelId.trim() : undefined;
+    const playitInternalId =
+      typeof config.playitInternalId === "number" && Number.isFinite(config.playitInternalId)
+        ? Math.trunc(config.playitInternalId)
+        : undefined;
+    const playitTunnelName =
+      typeof config.playitTunnelName === "string" && config.playitTunnelName.trim().length > 0
+        ? config.playitTunnelName.trim()
+        : undefined;
+    const playitSecretPath =
+      typeof config.playitSecretPath === "string" && config.playitSecretPath.trim().length > 0
+        ? config.playitSecretPath.trim()
+        : undefined;
+    return {
+      playitTunnelId,
+      playitInternalId,
+      playitTunnelName,
+      playitSecretPath
+    };
+  }
+
+  setPlayitSecretPath(tunnelId: string, secretPath: string): TunnelRecord {
+    const tunnel = store.getTunnel(tunnelId);
+    if (!tunnel) {
+      throw new Error("Tunnel not found");
+    }
+    if (tunnel.provider !== "playit") {
+      throw new Error("Tunnel is not playit-backed");
+    }
+
+    const config = this.parseTunnelConfig(tunnel);
+    const nextConfig = {
+      ...config,
+      playitSecretPath: secretPath.trim()
+    };
+    store.updateTunnelConfig(tunnel.id, JSON.stringify(nextConfig));
+    const updated = store.getTunnel(tunnelId);
+    if (!updated) {
+      throw new Error("Tunnel not found after secret update");
+    }
+    return updated;
+  }
+
+  private persistPlayitTunnelBinding(
+    tunnel: TunnelRecord,
+    remote: { id?: string; internal_id?: number; name?: string }
+  ): void {
+    const binding = this.getPlayitTunnelBinding(tunnel);
+    const nextTunnelId = typeof remote.id === "string" && remote.id.length > 0 ? remote.id : undefined;
+    const nextInternalId = typeof remote.internal_id === "number" && Number.isFinite(remote.internal_id) ? Math.trunc(remote.internal_id) : undefined;
+    const nextTunnelName = typeof remote.name === "string" && remote.name.trim().length > 0 ? remote.name.trim() : undefined;
+
+    const changed =
+      (nextTunnelId ?? null) !== (binding.playitTunnelId ?? null) ||
+      (nextInternalId ?? null) !== (binding.playitInternalId ?? null) ||
+      (nextTunnelName ?? null) !== (binding.playitTunnelName ?? null);
+
+    if (!changed) {
+      return;
+    }
+
+    const config = this.parseTunnelConfig(tunnel);
+    const nextConfig: Record<string, unknown> = { ...config };
+    if (nextTunnelId) {
+      nextConfig.playitTunnelId = nextTunnelId;
+    } else {
+      delete nextConfig.playitTunnelId;
+    }
+
+    if (nextInternalId !== undefined) {
+      nextConfig.playitInternalId = nextInternalId;
+    } else {
+      delete nextConfig.playitInternalId;
+    }
+
+    if (nextTunnelName) {
+      nextConfig.playitTunnelName = nextTunnelName;
+    } else {
+      delete nextConfig.playitTunnelName;
+    }
+
+    store.updateTunnelConfig(tunnel.id, JSON.stringify(nextConfig));
+  }
+
   private async fetchPlayitRunData(secret: string): Promise<PlayitRunDataResult["data"]> {
     const response = await request("https://api.playit.gg/v1/agents/rundata", {
       method: "POST",
@@ -592,6 +711,9 @@ export class TunnelService {
     runData: PlayitRunDataResult["data"],
     tunnel: TunnelRecord
   ): {
+    id?: string;
+    internal_id?: number;
+    name?: string;
     display_address: string;
     port_type: PlayitPortType;
     agent_config?: {
@@ -602,6 +724,7 @@ export class TunnelService {
     };
   } | null {
     const tunnels = runData?.tunnels ?? [];
+    const binding = this.getPlayitTunnelBinding(tunnel);
     const compatible = tunnels.filter((entry) => {
       if (!entry || !entry.display_address || entry.disabled_reason) {
         return false;
@@ -613,6 +736,20 @@ export class TunnelService {
 
       return true;
     });
+
+    if (binding.playitTunnelId) {
+      const byTunnelId = compatible.find((entry) => entry.id === binding.playitTunnelId);
+      if (byTunnelId) {
+        return byTunnelId;
+      }
+    }
+
+    if (binding.playitInternalId !== undefined) {
+      const byInternalId = compatible.find((entry) => entry.internal_id === binding.playitInternalId);
+      if (byInternalId) {
+        return byInternalId;
+      }
+    }
 
     const exactLocalPortMatches = compatible.filter((entry) => {
       const localPort = resolvePlayitTunnelLocalPort(entry);
@@ -639,6 +776,11 @@ export class TunnelService {
     const publicPortMatches = compatible.filter((entry) => parseDisplayAddress(entry.display_address)?.port === tunnel.publicPort);
     if (publicPortMatches.length === 1) {
       return publicPortMatches[0];
+    }
+
+    if (compatible.length > 0) {
+      // Prefer first compatible tunnel over a perpetual unresolved state.
+      return compatible[0];
     }
 
     return null;
@@ -954,24 +1096,42 @@ function readPlayitSecretFile(secretPath: string): string | null {
       return null;
     }
 
-    const rawCandidate = content.split(/\r?\n/).map((line) => line.trim()).find((line) => isHex(line));
-    if (rawCandidate) {
-      return rawCandidate;
-    }
-
-    const legacySecret = content.match(/secret_key\s*=\s*["']?([a-fA-F0-9]+)["']?/);
-    if (legacySecret?.[1] && isHex(legacySecret[1])) {
-      return legacySecret[1];
-    }
-
-    return null;
+    return normalizePlayitSecret(content);
   } catch {
     return null;
   }
 }
 
-function isHex(value: string): boolean {
-  return /^[a-fA-F0-9]+$/.test(value.trim());
+function normalizePlayitSecret(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  for (const line of lines) {
+    const candidate = line.replace(/^Agent-Key\s+/i, "").trim();
+    if (/^[A-Za-z0-9_-]{8,}$/.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  const fromToml = trimmed.match(/secret_key\s*=\s*["']?([A-Za-z0-9_-]{8,})["']?/i)?.[1];
+  if (fromToml) {
+    return fromToml.trim();
+  }
+
+  const fromEnv = trimmed.match(/PLAYIT_SECRET\s*=\s*["']?([A-Za-z0-9_-]{8,})["']?/i)?.[1];
+  if (fromEnv) {
+    return fromEnv.trim();
+  }
+
+  const fromHeader = trimmed.match(/Agent-Key\s+([A-Za-z0-9_-]{8,})/i)?.[1];
+  if (fromHeader) {
+    return fromHeader.trim();
+  }
+
+  return null;
 }
 
 function parseDisplayAddress(value: string): { host: string; port: number } | null {

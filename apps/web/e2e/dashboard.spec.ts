@@ -300,6 +300,11 @@ test("connects and renders dashboard sections", async ({ page }) => {
         actions: ["Keep the app running while playit assigns a public endpoint."],
         fixes: [
           {
+            id: "set_playit_secret",
+            label: "Set Playit Secret",
+            description: "Paste Playit secret."
+          },
+          {
             id: "refresh_diagnostics",
             label: "Retry Endpoint Check",
             description: "Run diagnostics again."
@@ -444,7 +449,7 @@ test("connects and renders dashboard sections", async ({ page }) => {
       await withJson(200, {
         generatedAt: new Date().toISOString(),
         build: {
-          appVersion: "0.4.1",
+          appVersion: "0.5.0",
           platform: "darwin",
           arch: "arm64",
           nodeVersion: "v20.0.0",
@@ -452,7 +457,7 @@ test("connects and renders dashboard sections", async ({ page }) => {
           signatureStatus: "development",
           signatureProvider: null,
           releaseChannel: "stable",
-          repository: "https://github.com/charlesshaw3/SimpleServers"
+          repository: "https://github.com/dueldev/SimpleServers"
         },
         verification: {
           checksumUrl: null,
@@ -572,6 +577,10 @@ test("connects and renders dashboard sections", async ({ page }) => {
   await page.getByRole("button", { name: "Connect" }).click();
 
   await expect(page.getByRole("heading", { name: "Server Fleet" })).toBeVisible();
+  await page.getByRole("button", { name: "Set Playit Secret" }).first().click();
+  await expect(page.getByLabel("Playit Secret").first()).toBeVisible();
+  await page.getByLabel("Layout density").selectOption("full");
+  await expect(page.getByRole("heading", { name: "Onboarding Funnel" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Test Server" })).toBeVisible();
   await page.getByRole("checkbox", { name: "Select Test Server" }).check();
   await page.getByRole("button", { name: "Backup Selected" }).click();

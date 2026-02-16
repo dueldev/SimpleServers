@@ -351,6 +351,14 @@ a {
   background: linear-gradient(160deg, color-mix(in srgb, var(--surface-strong) 86%, transparent), color-mix(in srgb, var(--surface) 90%, transparent));
 }
 
+.playit-secret-form {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--surface-strong) 88%, transparent), color-mix(in srgb, var(--surface) 92%, transparent));
+}
+
 .diagnostics-box h3,
 .recovery-box h3 {
   margin: 0 0 6px;
@@ -819,6 +827,13 @@ th {
 .command-palette-list li button span {
   color: var(--text-soft);
   font-size: 0.83rem;
+}
+
+.command-palette-list li button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  border-color: var(--border);
 }
 
 @media (max-width: 1100px) {

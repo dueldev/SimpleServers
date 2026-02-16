@@ -112,6 +112,12 @@ SimpleServers is a local-first control plane split into API, web UI, and desktop
 - Advanced file editor now surfaces per-file snapshot history + rollback to reduce config-edit regression risk.
 - Tunnel diagnostics include one-click recovery actions (`restart_tunnel`, `go_live_recovery`) for unresolved endpoint states.
 
+12. Playit reliability hardening
+
+- Quick-host diagnostics support a direct Playit secret setup endpoint (`/tunnels/:id/playit/secret`) for no-shell onboarding.
+- Playit secret material is stored in local app data (`data/secrets/playit`) and referenced by tunnel config path.
+- Tunnel sync now persists remote Playit tunnel identity metadata (ID/internal ID/name) to reduce ambiguous endpoint matching across multi-tunnel accounts.
+
 ## Provider Integrations
 
 - Mojang metadata for Vanilla version resolution.

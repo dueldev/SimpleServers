@@ -24,6 +24,7 @@ import { RemoteControlService } from "../services/remote-control-service.js";
 import { PreflightService } from "../services/preflight-service.js";
 
 const config = loadConfig();
+const playitSecretsDir = path.join(config.dataDir, "secrets", "playit");
 const editableFiles = new Set(["server.properties", "ops.json", "whitelist.json", "banned-ips.json", "banned-players.json"]);
 const editableTextExtensions = new Set([
   ".properties",
@@ -44,8 +45,8 @@ const ignoredDirectoryNames = new Set(["node_modules", "libraries", ".git", "cac
 const maxEditableFileBytes = 1024 * 1024; // 1 MB safety guard for in-app editing.
 const maxEditorFiles = 350;
 const maxEditorDepth = 5;
-const APP_VERSION = "0.4.1";
-const REPOSITORY_URL = "https://github.com/charlesshaw3/SimpleServers";
+const APP_VERSION = "0.5.0";
+const REPOSITORY_URL = "https://github.com/dueldev/SimpleServers";
 
 const userCreateSchema = z.object({
   username: z.string().min(2).max(24),
@@ -106,6 +107,10 @@ const createTunnelSchema = z.object({
 const quickPublicHostingSchema = z.object({
   localPort: z.number().int().min(1).max(65535).optional(),
   protocol: z.enum(["tcp", "udp"]).optional()
+});
+
+const playitSecretSchema = z.object({
+  secret: z.string().trim().min(8).max(4096)
 });
 
 const contentSearchSchema = z.object({
@@ -443,6 +448,37 @@ function buildSimpleDiff(current: string, next: string): string[] {
   }
 
   return diff;
+}
+
+function normalizePlayitSecretInput(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const first = lines[0] ?? "";
+  const direct = first.replace(/^Agent-Key\s+/i, "").trim();
+  if (/^[A-Za-z0-9_-]{8,}$/.test(direct)) {
+    return direct;
+  }
+
+  const fromToml = trimmed.match(/secret_key\s*=\s*["']?([A-Za-z0-9_-]{8,})["']?/i)?.[1];
+  if (fromToml) {
+    return fromToml.trim();
+  }
+
+  const fromEnv = trimmed.match(/PLAYIT_SECRET\s*=\s*["']?([A-Za-z0-9_-]{8,})["']?/i)?.[1];
+  if (fromEnv) {
+    return fromEnv.trim();
+  }
+
+  const fromAgentKey = trimmed.match(/Agent-Key\s+([A-Za-z0-9_-]{8,})/i)?.[1];
+  if (fromAgentKey) {
+    return fromAgentKey.trim();
+  }
+
+  return "";
 }
 
 export async function registerApiRoutes(
@@ -1974,7 +2010,7 @@ export async function registerApiRoutes(
         actions.push("Install or allow SimpleServers to manage the playit binary.");
       }
       if (diagnostics.authConfigured === false) {
-        actions.push("Launch playit once and complete agent auth, or set PLAYIT_SECRET / PLAYIT_SECRET_PATH.");
+        actions.push("Paste your Playit secret from the Playit dashboard, or launch playit once and complete agent auth.");
       }
       if (!diagnostics.endpointAssigned) {
         actions.push("Keep the app running while playit assigns a public endpoint.");
@@ -1996,7 +2032,12 @@ export async function registerApiRoutes(
         description: "Attempt to auto-install Playit and launch the tunnel."
       });
     }
-    if (diagnostics && (diagnostics.status === "error" || diagnostics.status === "pending")) {
+    if (
+      diagnostics &&
+      (diagnostics.status === "error" ||
+        diagnostics.status === "pending" ||
+        (diagnostics.provider === "playit" && !diagnostics.endpointAssigned))
+    ) {
       fixes.push({
         id: "restart_tunnel",
         label: "Restart Tunnel Agent",
@@ -2004,6 +2045,11 @@ export async function registerApiRoutes(
       });
     }
     if (diagnostics?.provider === "playit" && diagnostics.authConfigured === false) {
+      fixes.push({
+        id: "set_playit_secret",
+        label: "Set Playit Secret",
+        description: "Paste your Playit agent secret once so endpoint sync can authenticate."
+      });
       fixes.push({
         id: "copy_playit_auth_steps",
         label: "Copy Auth Steps",
@@ -2257,6 +2303,50 @@ export async function registerApiRoutes(
     await deps.tunnels.stopTunnel(id);
     writeAudit(request.user!.username, "tunnel.stop", "tunnel", id);
     return { ok: true };
+  });
+
+  app.post("/tunnels/:id/playit/secret", { preHandler: [authenticate, requireRole("admin")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const payload = playitSecretSchema.parse(request.body);
+    const tunnel = store.getTunnel(id);
+    if (!tunnel) {
+      throw app.httpErrors.notFound("Tunnel not found");
+    }
+    if (tunnel.provider !== "playit") {
+      throw app.httpErrors.badRequest("Tunnel is not playit-backed");
+    }
+
+    const normalizedSecret = normalizePlayitSecretInput(payload.secret);
+    if (!normalizedSecret) {
+      throw app.httpErrors.badRequest("Could not parse a valid Playit secret from input");
+    }
+
+    fs.mkdirSync(playitSecretsDir, { recursive: true });
+    const secretPath = path.join(playitSecretsDir, `${tunnel.id}.secret`);
+    fs.writeFileSync(secretPath, `${normalizedSecret}\n`, {
+      encoding: "utf8",
+      mode: 0o600
+    });
+    try {
+      fs.chmodSync(secretPath, 0o600);
+    } catch {
+      // best-effort permission hardening on platforms without chmod semantics.
+    }
+
+    const updatedTunnel = deps.tunnels.setPlayitSecretPath(id, secretPath);
+    const sync = await deps.tunnels.refreshPlayitTunnelPublicEndpoint(updatedTunnel.id).catch(() => ({ synced: false }));
+    writeAudit(request.user!.username, "tunnel.playit.secret.set", "tunnel", id, {
+      tunnelId: id,
+      configured: true,
+      synced: sync.synced
+    });
+
+    return {
+      ok: true,
+      tunnelId: updatedTunnel.id,
+      provider: updatedTunnel.provider,
+      synced: sync.synced
+    };
   });
 
   app.get("/content/search", { preHandler: [authenticate] }, async (request) => {

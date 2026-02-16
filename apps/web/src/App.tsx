@@ -678,6 +678,9 @@ export default function App() {
   const [quickHostingStatus, setQuickHostingStatus] = useState<QuickHostingStatus | null>(null);
   const [quickHostingDiagnostics, setQuickHostingDiagnostics] = useState<QuickHostingDiagnostics | null>(null);
   const [quickHostRetryCountdown, setQuickHostRetryCountdown] = useState<number | null>(null);
+  const [showPlayitSecretForm, setShowPlayitSecretForm] = useState(false);
+  const [playitSecretInput, setPlayitSecretInput] = useState("");
+  const [savingPlayitSecret, setSavingPlayitSecret] = useState(false);
   const [remoteState, setRemoteState] = useState<RemoteState | null>(null);
   const [javaChannels, setJavaChannels] = useState<JavaChannel[]>([]);
   const [audit, setAudit] = useState<Audit[]>([]);
@@ -773,6 +776,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<AppView>("overview");
   const [experienceMode, setExperienceMode] = useState<ExperienceMode>("beginner");
   const [themePreference, setThemePreference] = useState<ThemePreference>("colorful");
+  const [focusMode, setFocusMode] = useState(true);
   const [powerMode, setPowerMode] = useState(false);
   const [viewer, setViewer] = useState<ViewerIdentity | null>(null);
   const [hasSearchedContent, setHasSearchedContent] = useState(false);
@@ -1294,6 +1298,11 @@ export default function App() {
     if (storedTheme === "colorful" || storedTheme === "dark" || storedTheme === "light" || storedTheme === "system") {
       setThemePreference(storedTheme);
     }
+
+    const storedFocusMode = window.localStorage.getItem("simpleservers.ui.focus_mode");
+    if (storedFocusMode === "0") {
+      setFocusMode(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -1325,6 +1334,10 @@ export default function App() {
     media.addEventListener("change", listener);
     return () => media.removeEventListener("change", listener);
   }, [themePreference]);
+
+  useEffect(() => {
+    window.localStorage.setItem("simpleservers.ui.focus_mode", focusMode ? "1" : "0");
+  }, [focusMode]);
 
   useEffect(() => {
     if (!commandPaletteOpen) {
@@ -1400,6 +1413,14 @@ export default function App() {
 
     return () => window.clearInterval(timer);
   }, [quickHostingDiagnostics?.diagnostics?.retry.nextAttemptAt, quickHostingDiagnostics?.diagnostics?.retry.nextAttemptInSeconds]);
+
+  useEffect(() => {
+    if (quickHostingDiagnostics?.diagnostics?.authConfigured === false) {
+      return;
+    }
+    setShowPlayitSecretForm(false);
+    setPlayitSecretInput("");
+  }, [quickHostingDiagnostics?.diagnostics?.authConfigured, selectedServerId]);
 
   const versionOptions = useMemo(() => {
     return catalog[createServer.type].map((v) => v.id);
@@ -2529,6 +2550,11 @@ export default function App() {
           "Run `playit` once to complete login, or set PLAYIT_SECRET / PLAYIT_SECRET_PATH so SimpleServers can sync your endpoint."
         );
         setNotice("Copied Playit auth steps to clipboard.");
+      } else if (fixId === "set_playit_secret") {
+        setShowPlayitSecretForm(true);
+        setNotice("Paste your Playit secret below, then save and retry diagnostics.");
+        setApplyingNetworkFix(null);
+        return;
       } else if (fixId === "restart_tunnel") {
         const tunnelId = quickHostingDiagnostics?.diagnostics?.tunnelId;
         if (tunnelId) {
@@ -2546,6 +2572,39 @@ export default function App() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setApplyingNetworkFix(null);
+    }
+  }
+
+  async function savePlayitSecret(): Promise<void> {
+    const tunnelId = quickHostingDiagnostics?.diagnostics?.tunnelId;
+    if (!tunnelId) {
+      setError("No tunnel selected for Playit auth setup.");
+      return;
+    }
+
+    const candidate = playitSecretInput.trim();
+    if (!candidate) {
+      setError("Playit secret cannot be empty.");
+      return;
+    }
+
+    try {
+      setSavingPlayitSecret(true);
+      await api.current.post(`/tunnels/${tunnelId}/playit/secret`, {
+        secret: candidate
+      });
+      setPlayitSecretInput("");
+      setShowPlayitSecretForm(false);
+      if (selectedServerId) {
+        await refreshServerOperations(selectedServerId);
+      }
+      await refreshAll();
+      setNotice("Playit secret saved. Retrying endpoint sync.");
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingPlayitSecret(false);
     }
   }
 
@@ -2958,6 +3017,13 @@ export default function App() {
               <option value="system">System</option>
             </select>
           </label>
+          <label className="compact-field">
+            Layout
+            <select aria-label="Layout density" value={focusMode ? "focus" : "full"} onChange={(event) => setFocusMode(event.target.value === "focus")}>
+              <option value="focus">Focus (Recommended)</option>
+              <option value="full">Full Dashboard</option>
+            </select>
+          </label>
           <button type="button" onClick={() => void refreshAll()} disabled={!connected || busy}>
             {busy ? "Refreshing..." : "Refresh"}
           </button>
@@ -3220,6 +3286,30 @@ export default function App() {
                     </button>
                   ))}
                 </div>
+                {showPlayitSecretForm || quickHostingDiagnostics.diagnostics.authConfigured === false ? (
+                  <div className="playit-secret-form">
+                    <label>
+                      Playit Secret
+                      <input
+                        type="password"
+                        value={playitSecretInput}
+                        onChange={(event) => setPlayitSecretInput(event.target.value)}
+                        placeholder="Paste Agent-Key or secret_key value"
+                      />
+                    </label>
+                    <div className="inline-actions">
+                      <button type="button" onClick={() => void savePlayitSecret()} disabled={savingPlayitSecret}>
+                        {savingPlayitSecret ? "Saving..." : "Save Secret"}
+                      </button>
+                      <button type="button" onClick={() => setShowPlayitSecretForm(false)} disabled={savingPlayitSecret}>
+                        Cancel
+                      </button>
+                    </div>
+                    <p className="muted-note">
+                      Stored locally on this machine and used only for Playit endpoint sync (`data/secrets/playit`).
+                    </p>
+                  </div>
+                ) : null}
               </>
             ) : (
               <p className="muted-note">Enable quick hosting to start network diagnostics.</p>
@@ -3287,8 +3377,9 @@ export default function App() {
               </button>
             </section>
           )}
-
-          <section className="dual-grid">
+          {!focusMode ? (
+            <>
+              <section className="dual-grid">
             <article className="panel">
               <h2>Fast Launch</h2>
               <p className="muted-note">Best for first-time setup. This creates, starts, and publishes your server in one flow.</p>
@@ -3397,43 +3488,52 @@ export default function App() {
             </ul>
           </section>
 
-          {funnelMetrics ? (
+              {funnelMetrics ? (
+                <section className="panel">
+                  <h2>Onboarding Funnel</h2>
+                  <p className="muted-note">Last {funnelMetrics.windowHours}h across {funnelMetrics.sessionsObserved} observed sessions.</p>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Stage</th>
+                        <th>Sessions</th>
+                        <th>Conversion</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>Connected</td>
+                        <td>{funnelMetrics.stageTotals.connect}</td>
+                        <td>-</td>
+                      </tr>
+                      <tr>
+                        <td>Created Server</td>
+                        <td>{funnelMetrics.stageTotals.create}</td>
+                        <td>{funnelMetrics.conversion.createFromConnectPct}%</td>
+                      </tr>
+                      <tr>
+                        <td>Started Server</td>
+                        <td>{funnelMetrics.stageTotals.start}</td>
+                        <td>{funnelMetrics.conversion.startFromCreatePct}%</td>
+                      </tr>
+                      <tr>
+                        <td>Public Address Ready</td>
+                        <td>{funnelMetrics.stageTotals.publicReady}</td>
+                        <td>{funnelMetrics.conversion.publicReadyFromStartPct}%</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </section>
+              ) : null}
+            </>
+          ) : (
             <section className="panel">
-              <h2>Onboarding Funnel</h2>
-              <p className="muted-note">Last {funnelMetrics.windowHours}h across {funnelMetrics.sessionsObserved} observed sessions.</p>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Stage</th>
-                    <th>Sessions</th>
-                    <th>Conversion</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>Connected</td>
-                    <td>{funnelMetrics.stageTotals.connect}</td>
-                    <td>-</td>
-                  </tr>
-                  <tr>
-                    <td>Created Server</td>
-                    <td>{funnelMetrics.stageTotals.create}</td>
-                    <td>{funnelMetrics.conversion.createFromConnectPct}%</td>
-                  </tr>
-                  <tr>
-                    <td>Started Server</td>
-                    <td>{funnelMetrics.stageTotals.start}</td>
-                    <td>{funnelMetrics.conversion.startFromCreatePct}%</td>
-                  </tr>
-                  <tr>
-                    <td>Public Address Ready</td>
-                    <td>{funnelMetrics.stageTotals.publicReady}</td>
-                    <td>{funnelMetrics.conversion.publicReadyFromStartPct}%</td>
-                  </tr>
-                </tbody>
-              </table>
+              <h2>Focus Mode Is On</h2>
+              <p className="muted-note">
+                Showing streamlined controls only. Switch Layout to <code>Full Dashboard</code> for onboarding funnel, action queue, and extended flow details.
+              </p>
             </section>
-          ) : null}
+          )}
 
           <section className="panel">
             <h2>Bulk Operations</h2>
@@ -3888,6 +3988,27 @@ export default function App() {
                             {applyingNetworkFix === fix.id ? "Applying..." : fix.label}
                           </button>
                         ))}
+                      </div>
+                    ) : null}
+                    {showPlayitSecretForm || quickHostingDiagnostics.diagnostics.authConfigured === false ? (
+                      <div className="playit-secret-form">
+                        <label>
+                          Playit Secret
+                          <input
+                            type="password"
+                            value={playitSecretInput}
+                            onChange={(event) => setPlayitSecretInput(event.target.value)}
+                            placeholder="Paste Agent-Key or secret_key value"
+                          />
+                        </label>
+                        <div className="inline-actions">
+                          <button type="button" onClick={() => void savePlayitSecret()} disabled={savingPlayitSecret}>
+                            {savingPlayitSecret ? "Saving..." : "Save Secret"}
+                          </button>
+                          <button type="button" onClick={() => setShowPlayitSecretForm(false)} disabled={savingPlayitSecret}>
+                            Cancel
+                          </button>
+                        </div>
                       </div>
                     ) : null}
                     {quickHostPending && quickHostRetryCountdown !== null ? (

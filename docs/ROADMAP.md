@@ -2,7 +2,16 @@
 
 ## Status
 
-Current stable milestone: `v0.4.1` (validated by local typecheck/tests/build/desktop build).
+Current stable milestone: `v0.5.0` (validated by local typecheck/tests/build/desktop build).
+
+## Implemented in v0.5.0
+
+- Completed market-driven UX refresh using Prism Launcher / SquidServers / playit.gg / Pterodactyl / Crafty research.
+- Added Focus-vs-Full dashboard layout mode to reduce first-run UI clutter while preserving advanced depth.
+- Added Playit secret setup endpoint (`POST /tunnels/:id/playit/secret`) with local secret-file storage (`data/secrets/playit`).
+- Added diagnostics quick-fix path `set_playit_secret` for no-shell Playit onboarding.
+- Hardened Playit endpoint matching by persisting remote tunnel identity metadata to avoid unresolved multi-tunnel ambiguity.
+- Expanded tunnel recovery surface and validation for `restart_tunnel` + `go_live_recovery` flows.
 
 ## Implemented in v0.4.1
 

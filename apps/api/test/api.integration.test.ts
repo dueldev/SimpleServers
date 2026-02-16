@@ -88,7 +88,7 @@ describe("api integration", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().build.appVersion).toBe("0.4.1");
+    expect(response.json().build.appVersion).toBe("0.5.0");
     expect(response.json().security.localOnlyByDefault).toBe(true);
     expect(response.json().security.authModel).toBe("token-rbac");
   });
@@ -791,7 +791,7 @@ describe("api integration", () => {
       maxMemoryMb: 2048
     });
 
-    await app.inject({
+    const quickEnableResponse = await app.inject({
       method: "POST",
       url: `/servers/${diagnosticsServer.id}/public-hosting/quick-enable`,
       headers: {
@@ -799,6 +799,20 @@ describe("api integration", () => {
       },
       payload: {}
     });
+    expect(quickEnableResponse.statusCode).toBe(200);
+    const tunnelId = quickEnableResponse.json().tunnel.id as string;
+
+    const secretResponse = await app.inject({
+      method: "POST",
+      url: `/tunnels/${tunnelId}/playit/secret`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {
+        secret: "Agent-Key abcdef1234567890"
+      }
+    });
+    expect(secretResponse.statusCode).toBe(200);
 
     const diagnosticsResponse = await app.inject({
       method: "GET",

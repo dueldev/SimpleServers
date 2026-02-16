@@ -650,6 +650,10 @@ export const store = {
     );
   },
 
+  updateTunnelConfig(id: string, configJson: string): void {
+    db.prepare("UPDATE tunnels SET config_json = ?, updated_at = ? WHERE id = ?").run(configJson, nowIso(), id);
+  },
+
   listServerPackages(serverId: string): ServerPackageRecord[] {
     const rows = db
       .prepare("SELECT * FROM server_packages WHERE server_id = ? ORDER BY installed_at DESC")

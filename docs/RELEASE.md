@@ -2,7 +2,7 @@
 
 SimpleServers ships desktop artifacts via Electron Builder and GitHub Actions.
 
-Canonical repository: `https://github.com/charlesshaw3/SimpleServers`
+Canonical repository: `https://github.com/dueldev/SimpleServers`
 
 ## Workflows
 
@@ -95,6 +95,13 @@ Default log paths:
 
 ## Recent Release Notes
 
+- `v0.5.0`
+  - Reworked dashboard flow with Focus-vs-Full layout mode to reduce first-run clutter and improve navigation clarity.
+  - Added Playit secret setup API (`POST /tunnels/:id/playit/secret`) and UI wiring for no-shell tunnel authentication.
+  - Added diagnostics quick-fix `set_playit_secret` and strengthened guided recovery for unresolved endpoint states.
+  - Improved Playit endpoint resolution reliability by persisting remote tunnel identity metadata for better multi-tunnel matching.
+  - Completed a full market-driven UX/functionality pass informed by Prism Launcher, SquidServers, playit.gg, and other control-plane references.
+  - Re-validated with `typecheck`, API integration tests, e2e tests, web build, and desktop build.
 - `v0.4.1`
   - Completed a full hardening pass across API/web/desktop release flows before tagging.
   - Made command-palette actions connection-aware to prevent invalid action execution while disconnected.

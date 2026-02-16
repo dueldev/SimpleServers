@@ -1,42 +1,87 @@
-# UX Research Notes (v0.4.x)
+# UX Research Notes (v0.5.0)
 
-This release included external UX benchmarking plus codebase audit to reduce friction for non-technical operators.
+This document captures external product research + internal audit that shaped the `v0.5.0` release.
 
-## External references
+## Research Targets
 
-- SquidServers update notes (flow and product direction):
-  - https://squidservers.com/updates
-  - https://squidservers.com/updates/v056
-  - https://squidservers.com/updates/v055
-- Nielsen Norman Group, 10 usability heuristics (visibility of status, recognition over recall, error recovery):
-  - https://www.nngroup.com/articles/ten-usability-heuristics/
-- W3C WCAG 2.2 (focus visibility + control contrast expectations):
-  - https://www.w3.org/WAI/WCAG22/quickref/#focus-visible
-  - https://www.w3.org/WAI/WCAG22/quickref/#non-text-contrast
-- PatternFly bulk-selection guidance (clear selection model for batch actions):
-  - https://www.patternfly.org/patterns/bulk-selection/
+### Prism Launcher (instance-first desktop UX)
+- https://prismlauncher.org/
+- https://prismlauncher.org/wiki/getting-started/
+- https://prismlauncher.org/wiki/getting-started/create-instance/
+- https://prismlauncher.org/news/release-9.2/
 
-## Codebase findings
+Key takeaways:
+- Instance-centric mental model (`create/select/run`) stays obvious.
+- Default path is simple; advanced controls are discoverable but not mandatory.
+- Operational status is visible without forcing users into deep settings pages.
 
-- The app already had strong tooling depth, but high-cognitive-load flows still required view-hopping.
-- File rollback confidence existed for `server.properties`, but not surfaced clearly for all editable files.
-- Tunnel diagnostics were strong, but endpoint recovery still required too many manual steps for beginners.
-- Navigation relied on tab switching; fast command access was missing.
+### SquidServers (goal-first hosting UX)
+- https://squidservers.com/
+- https://squidservers.com/updates
+- https://docs.squidservers.com/website/custom-domain/
 
-## Implemented in v0.4.0 based on research
+Key takeaways:
+- Strong focus on fast path actions (create/deploy/share).
+- Public address and connection workflow are surfaced clearly.
+- Product communication emphasizes reduction of setup friction.
 
-- Added `Next Best Action` panel to keep one clear recommendation visible at all times.
-- Added global `Quick Actions` command palette (`Ctrl/Cmd + K` / `/`) for recognition-first navigation and actions.
-- Added per-file snapshot history and rollback controls in Advanced editor for safer edits.
-- Added diagnostics quick-fixes for `restart_tunnel` and `go_live_recovery` to reduce unresolved quick-host loops.
-- Updated visual emphasis for key flows (create, start, publish, recover) while preserving existing advanced tooling.
+### playit.gg (tunnel onboarding + runtime expectations)
+- https://playit.gg/download
+- https://playit.gg/support/setup-minecraft-java-server/
+- https://playit.gg/support/setup-common-issues/
 
-## v0.4.1 hardening pass
+Key takeaways:
+- Tunnel success depends on authenticated agent state.
+- “Endpoint pending” is a normal transitional state and must be communicated clearly.
+- Setup should expose concrete recovery steps, not generic retry messaging.
 
-- Added connection-aware command-palette action availability to prevent avoidable failure states.
-- Hardened editor snapshot state handling for empty/missing-file edge cases.
-- Added direct validation assertions for both new diagnostics quick-fix IDs.
+### Other server control planes
+- Pterodactyl docs: https://pterodactyl.io/panel/1.0/getting_started.html
+- Crafty Controller: https://craftycontrol.com/
+
+Key takeaways:
+- Clear separation between lifecycle, files, backups, and networking improves orientation.
+- Batch actions and status visibility reduce operator overhead for multi-server setups.
+
+### UX Heuristics and accessibility references
+- Nielsen Norman Group (10 heuristics): https://www.nngroup.com/articles/ten-usability-heuristics/
+- WCAG 2.2 quick reference: https://www.w3.org/WAI/WCAG22/quickref/
+- PatternFly bulk-selection pattern: https://www.patternfly.org/patterns/bulk-selection/
+
+## Internal Findings Before v0.5.0
+
+- Playit quick-host often stayed unresolved for users without an already-configured local agent secret.
+- Dashboard had power, but presented too much at once for first-time operators.
+- Recovery actions existed, but authentication setup for tunnel sync still required external shell knowledge.
+- File rollback confidence was stronger than before, but reliability edge cases still existed when file state changed rapidly.
+
+## v0.5.0 Changes Mapped to Findings
+
+### Reliability and functionality
+- Added Playit secret setup endpoint: `POST /tunnels/:id/playit/secret`.
+- Stored Playit secret in local app data (`data/secrets/playit`) and referenced via tunnel config path.
+- Hardened Playit tunnel matching by persisting remote identity metadata (tunnel ID/internal ID/name).
+- Added/expanded diagnostics recovery actions for:
+  - `restart_tunnel`
+  - `set_playit_secret`
+  - `go_live_recovery`
+
+### UX and decluttering
+- Added Focus vs Full dashboard layout control (Focus default) to reduce first-run cognitive load.
+- Kept primary flow visible (`Create`, `Go Live`, `Fix`) while moving heavy telemetry/queue surfaces behind Full layout.
+- Preserved advanced depth while reducing noise for non-technical users.
+- Kept quick actions and guided recovery paths available from central surfaces.
+
+### Hardening details
+- Command palette actions are connection-aware to avoid disconnected-state failures.
+- Editor snapshot state now clears safely on file inventory/load edge conditions.
 
 ## Validation
 
-- Typecheck, API integration tests, Playwright e2e, and build were run after implementation.
+The following were run after implementation:
+
+- `npm run typecheck`
+- `npm run test:api`
+- `npm run test:e2e`
+- `npm run build`
+- `npm run desktop:build`

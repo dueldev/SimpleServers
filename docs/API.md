@@ -127,6 +127,7 @@ Notes:
   - `start_server`
   - `start_tunnel`
   - `restart_tunnel`
+  - `set_playit_secret`
   - `copy_playit_auth_steps`
   - `refresh_diagnostics`
   - `go_live_recovery`
@@ -159,6 +160,7 @@ Notes:
 - `POST /tunnels` (`admin`)
 - `POST /tunnels/:id/start` (`moderator`)
 - `POST /tunnels/:id/stop` (`moderator`)
+- `POST /tunnels/:id/playit/secret` (`admin`, stores secret in local app data for Playit endpoint sync)
 
 Providers:
 
