@@ -427,6 +427,7 @@ type CommandPaletteAction = {
   detail: string;
   keywords: string[];
   run: () => void;
+  disabled?: boolean;
 };
 
 function normalizeStatus(value: string | null | undefined): string {
@@ -1673,6 +1674,15 @@ export default function App() {
   const commandPaletteActions = useMemo<CommandPaletteAction[]>(() => {
     const actions: CommandPaletteAction[] = [
       {
+        id: "reconnect-api",
+        label: connected ? "Reconnect API" : "Connect to API",
+        detail: connected ? "Reconnect using current API base and token." : "Attempt API connection with current credentials.",
+        keywords: ["connect", "reconnect", "api", "auth"],
+        run: () => {
+          void connect();
+        }
+      },
+      {
         id: "view-overview",
         label: "Open Overview",
         detail: "Command center and hosting journey.",
@@ -1712,6 +1722,7 @@ export default function App() {
         label: "Refresh Everything",
         detail: "Reload server, tunnel, and diagnostics state.",
         keywords: ["refresh", "reload", "sync"],
+        disabled: !connected,
         run: () => {
           void refreshAll();
         }
@@ -1742,6 +1753,7 @@ export default function App() {
         label: "Instant Launch Server",
         detail: "Create and start a server in one step.",
         keywords: ["create", "server", "launch"],
+        disabled: !connected,
         run: () => {
           void quickStartNow();
         }
@@ -1755,6 +1767,7 @@ export default function App() {
         label: "Start Selected Server",
         detail: "Start Minecraft runtime for the active server.",
         keywords: ["start", "server", "runtime"],
+        disabled: !connected,
         run: () => {
           void serverAction(selectedServerId, "start");
         }
@@ -1764,6 +1777,7 @@ export default function App() {
         label: "Stop Selected Server",
         detail: "Gracefully stop runtime and tunnels.",
         keywords: ["stop", "server", "runtime"],
+        disabled: !connected,
         run: () => {
           void serverAction(selectedServerId, "stop");
         }
@@ -1773,6 +1787,7 @@ export default function App() {
         label: "Restart Selected Server",
         detail: "Restart runtime and reconnect tunnels.",
         keywords: ["restart", "server", "runtime"],
+        disabled: !connected,
         run: () => {
           void serverAction(selectedServerId, "restart");
         }
@@ -1782,6 +1797,7 @@ export default function App() {
         label: "Go Live (Selected)",
         detail: "Run start + quick-host diagnostics in one flow.",
         keywords: ["go live", "publish", "public"],
+        disabled: !connected,
         run: () => {
           void goLiveNow();
         }
@@ -1791,6 +1807,7 @@ export default function App() {
         label: "Create Backup (Selected)",
         detail: "Create an on-demand safety snapshot.",
         keywords: ["backup", "snapshot", "restore"],
+        disabled: !connected,
         run: () => {
           void createBackup(selectedServerId);
         }
@@ -1800,6 +1817,7 @@ export default function App() {
         label: "Run Crash Doctor",
         detail: "Apply guided recovery actions automatically.",
         keywords: ["crash", "doctor", "repair", "fix"],
+        disabled: !connected,
         run: () => {
           void runCrashDoctor();
         }
@@ -1818,7 +1836,11 @@ export default function App() {
 
     return actions;
   }, [
+    connected,
+    connect,
     createBackup,
+    refreshAll,
+    quickStartNow,
     goLiveNow,
     isAdvancedExperience,
     quickHostingStatus?.publicAddress,
@@ -2156,6 +2178,7 @@ export default function App() {
       await refreshEditorFileSnapshots(serverId, response.path);
       setError(null);
     } catch (e) {
+      setEditorFileSnapshots([]);
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoadingEditorFile(false);
@@ -2170,6 +2193,7 @@ export default function App() {
       if (response.files.length === 0) {
         setFileContent("");
         setFileOriginal("");
+        setEditorFileSnapshots([]);
         return;
       }
 
@@ -5135,7 +5159,11 @@ export default function App() {
                 <li key={action.id}>
                   <button
                     type="button"
+                    disabled={action.disabled}
                     onClick={() => {
+                      if (action.disabled) {
+                        return;
+                      }
                       setCommandPaletteOpen(false);
                       setCommandPaletteQuery("");
                       action.run();
@@ -5143,6 +5171,7 @@ export default function App() {
                   >
                     <strong>{action.label}</strong>
                     <span>{action.detail}</span>
+                    {action.disabled ? <span>Unavailable until API connection succeeds.</span> : null}
                   </button>
                 </li>
               ))}

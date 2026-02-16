@@ -44,7 +44,7 @@ const ignoredDirectoryNames = new Set(["node_modules", "libraries", ".git", "cac
 const maxEditableFileBytes = 1024 * 1024; // 1 MB safety guard for in-app editing.
 const maxEditorFiles = 350;
 const maxEditorDepth = 5;
-const APP_VERSION = "0.4.0";
+const APP_VERSION = "0.4.1";
 const REPOSITORY_URL = "https://github.com/charlesshaw3/SimpleServers";
 
 const userCreateSchema = z.object({

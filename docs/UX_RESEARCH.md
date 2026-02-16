@@ -1,4 +1,4 @@
-# UX Research Notes (v0.4.0)
+# UX Research Notes (v0.4.x)
 
 This release included external UX benchmarking plus codebase audit to reduce friction for non-technical operators.
 
@@ -30,6 +30,12 @@ This release included external UX benchmarking plus codebase audit to reduce fri
 - Added per-file snapshot history and rollback controls in Advanced editor for safer edits.
 - Added diagnostics quick-fixes for `restart_tunnel` and `go_live_recovery` to reduce unresolved quick-host loops.
 - Updated visual emphasis for key flows (create, start, publish, recover) while preserving existing advanced tooling.
+
+## v0.4.1 hardening pass
+
+- Added connection-aware command-palette action availability to prevent avoidable failure states.
+- Hardened editor snapshot state handling for empty/missing-file edge cases.
+- Added direct validation assertions for both new diagnostics quick-fix IDs.
 
 ## Validation
 

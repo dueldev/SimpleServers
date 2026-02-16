@@ -95,6 +95,12 @@ Default log paths:
 
 ## Recent Release Notes
 
+- `v0.4.1`
+  - Completed a full hardening pass across API/web/desktop release flows before tagging.
+  - Made command-palette actions connection-aware to prevent invalid action execution while disconnected.
+  - Hardened advanced editor snapshot UX for edge cases where file inventories become empty or file loads fail.
+  - Expanded quick-host diagnostics validation to assert both `restart_tunnel` and `go_live_recovery` fix paths.
+  - Re-ran full verification suite including desktop build (`typecheck`, `test:api`, `test:e2e`, `build`, `desktop:build`).
 - `v0.4.0`
   - Added a new `Next Best Action` panel in Overview so non-technical users always have one recommended next step.
   - Added global Quick Actions command palette (`Ctrl/Cmd + K` / `/`) for fast navigation and one-click operations.

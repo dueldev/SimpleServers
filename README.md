@@ -4,10 +4,10 @@ SimpleServers is an open-source, local-first Minecraft server hosting and admini
 
 It is designed as a stronger open alternative to closed desktop hosts: fast setup, safer operations, and richer owner tooling.
 
-Latest stable desktop release: `v0.4.0`
+Latest stable desktop release: `v0.4.1`
 
 - Releases: `https://github.com/charlesshaw3/SimpleServers/releases`
-- Current release: `https://github.com/charlesshaw3/SimpleServers/releases/tag/v0.4.0`
+- Current release: `https://github.com/charlesshaw3/SimpleServers/releases/tag/v0.4.1`
 
 ## Production Features
 
@@ -149,6 +149,7 @@ export SIMPLESERVERS_REMOTE_TOKEN='replace-this-too'
 - On first launch, the desktop app boots an embedded API and then loads the UI.
 - A startup screen is shown while services initialize.
 - The app writes startup diagnostics to a desktop log for fast triage.
+- `v0.4.1` hardens command-palette action safety, strengthens tunnel recovery fixes, and adds deeper validation pass coverage across API/web/desktop flows.
 - `v0.4.0` adds Quick Actions command palette UX, Next Best Action guidance, full-file snapshot rollback in Advanced editor, and stronger quick-host recovery actions.
 - `v0.3.1` adds multi-server bulk operations, a per-server Performance Advisor, and a new Trust workspace for build/security transparency.
 - `v0.2.2` adds a command-center overview (`Create Server`, `Go Live`), goal-first cards, network-health one-click fixes, Crash Doctor runbook automation, global beginner/advanced modes, persistent themes, and API-backed config snapshot rollback.

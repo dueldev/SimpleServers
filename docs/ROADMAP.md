@@ -2,7 +2,14 @@
 
 ## Status
 
-Current stable milestone: `v0.4.0` (validated by local typecheck/tests/build).
+Current stable milestone: `v0.4.1` (validated by local typecheck/tests/build/desktop build).
+
+## Implemented in v0.4.1
+
+- Added hardening pass for Quick Actions command palette: connection-aware action availability to reduce failed API calls.
+- Added editor edge-case reliability improvements (clearing stale snapshot state when file inventory/load fails).
+- Expanded tunnel diagnostics validation coverage for both `restart_tunnel` and `go_live_recovery` quick fixes.
+- Ran full release validation including desktop build (`npm run desktop:build`) in addition to typecheck/tests/web build.
 
 ## Implemented in v0.4.0
 
