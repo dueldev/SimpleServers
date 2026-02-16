@@ -166,7 +166,6 @@ Embedded API log locations:
 - `docs/ARCHITECTURE.md` architecture and security/runtime model
 - `docs/RELEASE.md` release, signing, and update-channel operations
 - `docs/ROADMAP.md` implemented roadmap and post-1.0 track
-- `docs/SQUID_PARITY.md` SquidServers research and parity mapping
 
 ## Security Notes
 
@@ -177,7 +176,7 @@ Embedded API log locations:
 
 ## Legal
 
-- SimpleServers is not affiliated with Mojang, Microsoft, or SquidServers.
+- SimpleServers is not affiliated with Mojang or Microsoft.
 - Follow Minecraft usage and distribution guidelines.
 
 ## License

@@ -43,7 +43,7 @@ All roadmap milestones through `v1.0.0` are implemented in this repository and v
 
 - Fixed bodyless POST action handling to prevent empty JSON body request failures.
 - Added stronger lifecycle/tunnel status visibility and guardrails in the dashboard UX.
-- Added research-backed SquidServers parity notes and implementation mapping.
+- Added baseline setup-flow mapping notes to guide onboarding UX improvements.
 
 ## Implemented in v0.1.12
 
@@ -51,7 +51,15 @@ All roadmap milestones through `v1.0.0` are implemented in this repository and v
 - Added explicit stop-action validation for missing servers.
 - Added recipe-driven setup shortcuts for crossplay, modded, and non-premium flows.
 - Added tunnel pending auto-refresh and contextual troubleshooting guidance in Manage.
-- Expanded SquidServers parity research coverage for onboarding/install and common-flow support.
+- Expanded onboarding and install guidance for common first-run hosting flows.
+
+## Implemented in v0.1.13
+
+- Added full server deletion workflow (API + dashboard) including runtime/tunnel shutdown and optional file/backup cleanup.
+- Added text-safe server file browser API (`editor/files`, `editor/file`, diff endpoint) for faster in-app editing.
+- Reworked advanced editor UX with searchable file index, unsaved-change handling, and one-click save/revert.
+- Improved setup and server library workflows to make multi-server creation, switching, and deletion easier.
+- Refreshed dashboard visual system with stronger hierarchy and improved readability across desktop/mobile.
 
 ## Next Track (Post-1.0)
 

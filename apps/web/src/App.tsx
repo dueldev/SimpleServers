@@ -203,6 +203,13 @@ type HardwareProfile = {
   };
 };
 
+type EditableFileEntry = {
+  path: string;
+  sizeBytes: number;
+  updatedAt: string | null;
+  exists: boolean;
+};
+
 type AppView = "overview" | "setup" | "manage" | "content" | "advanced";
 
 type ViewerIdentity = {
@@ -344,9 +351,14 @@ export default function App() {
     playitArgs: ""
   });
 
-  const [fileName, setFileName] = useState("server.properties");
+  const [filePath, setFilePath] = useState("server.properties");
   const [fileContent, setFileContent] = useState("");
   const [fileOriginal, setFileOriginal] = useState("");
+  const [editorFiles, setEditorFiles] = useState<EditableFileEntry[]>([]);
+  const [editorSearch, setEditorSearch] = useState("");
+  const [loadingEditorFile, setLoadingEditorFile] = useState(false);
+  const [savingEditorFile, setSavingEditorFile] = useState(false);
+  const [deletingServerId, setDeletingServerId] = useState<string | null>(null);
   const [contentForm, setContentForm] = useState({
     provider: "modrinth" as "modrinth" | "curseforge",
     query: "essential",
@@ -517,6 +529,10 @@ export default function App() {
         setPreflight(null);
         setCrashReports([]);
         setQuickHostingStatus(null);
+        setEditorFiles([]);
+        setFilePath("server.properties");
+        setFileContent("");
+        setFileOriginal("");
       }
 
       await refreshAdminData();
@@ -694,10 +710,17 @@ export default function App() {
     if (!liveConsole) {
       void refreshLogs(selectedServerId);
     }
-    void loadFile(selectedServerId, fileName);
     void refreshPackages(selectedServerId);
     void refreshServerOperations(selectedServerId);
   }, [connected, selectedServerId, liveConsole]);
+
+  useEffect(() => {
+    if (!connected || !selectedServerId) {
+      return;
+    }
+
+    void refreshEditorFiles(selectedServerId);
+  }, [connected, selectedServerId]);
 
   useEffect(() => {
     setHasSearchedContent(false);
@@ -732,6 +755,16 @@ export default function App() {
   const unresolvedAlerts = useMemo(() => {
     return alerts.filter((entry) => !entry.resolvedAt);
   }, [alerts]);
+
+  const filteredEditorFiles = useMemo(() => {
+    const query = editorSearch.trim().toLowerCase();
+    if (!query) {
+      return editorFiles;
+    }
+    return editorFiles.filter((entry) => entry.path.toLowerCase().includes(query));
+  }, [editorFiles, editorSearch]);
+
+  const hasFileChanges = fileContent !== fileOriginal;
 
   const selectedServerStatus = normalizeStatus(selectedServer?.status);
   const selectedCanStart = canStartServer(selectedServerStatus);
@@ -955,28 +988,120 @@ export default function App() {
     }
   }
 
-  async function loadFile(serverId: string, targetFile: string): Promise<void> {
+  async function loadEditorFile(serverId: string, targetPath: string): Promise<void> {
     try {
-      const response = await api.current.get<{ fileName: string; content: string }>(`/servers/${serverId}/files/${targetFile}`);
+      setLoadingEditorFile(true);
+      const query = new URLSearchParams({ path: targetPath });
+      const response = await api.current.get<{ path: string; content: string }>(`/servers/${serverId}/editor/file?${query.toString()}`);
       setFileContent(response.content);
       setFileOriginal(response.content);
-      setFileName(response.fileName);
+      setFilePath(response.path);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingEditorFile(false);
+    }
+  }
+
+  async function refreshEditorFiles(serverId: string): Promise<void> {
+    try {
+      const response = await api.current.get<{ files: EditableFileEntry[] }>(`/servers/${serverId}/editor/files`);
+      setEditorFiles(response.files);
+
+      if (response.files.length === 0) {
+        setFileContent("");
+        setFileOriginal("");
+        return;
+      }
+
+      const hasCurrentPath = response.files.some((entry) => entry.path === filePath);
+      const hasUnsavedChanges = fileContent !== fileOriginal;
+      const nextPath = hasCurrentPath ? filePath : response.files[0].path;
+
+      if (!nextPath) {
+        return;
+      }
+
+      if (hasUnsavedChanges && hasCurrentPath) {
+        return;
+      }
+
+      await loadEditorFile(serverId, nextPath);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
 
-  async function saveFile(): Promise<void> {
+  function openEditorFile(targetPath: string): void {
+    if (!selectedServerId) {
+      return;
+    }
+
+    if (targetPath === filePath) {
+      return;
+    }
+
+    if (fileContent !== fileOriginal) {
+      const confirmed = window.confirm("Discard unsaved file changes and switch files?");
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    void loadEditorFile(selectedServerId, targetPath);
+  }
+
+  async function saveEditorFile(): Promise<void> {
     if (!selectedServerId) {
       return;
     }
 
     try {
-      await api.current.put(`/servers/${selectedServerId}/files/${fileName}`, { content: fileContent });
+      setSavingEditorFile(true);
+      await api.current.put(`/servers/${selectedServerId}/editor/file`, { path: filePath, content: fileContent });
       setFileOriginal(fileContent);
-      await refreshAll();
+      await refreshEditorFiles(selectedServerId);
+      setNotice(`Saved ${filePath}.`);
+      setError(null);
     } catch (e) {
+      setNotice(null);
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingEditorFile(false);
+    }
+  }
+
+  async function deleteServer(server: Server): Promise<void> {
+    const confirmed = window.confirm(
+      `Delete "${server.name}"? This removes the server entry, files, and backup archives. This cannot be undone.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setDeletingServerId(server.id);
+      if (selectedServerId === server.id) {
+        setSelectedServerId(null);
+      }
+
+      const response = await api.current.delete<{ warnings?: string[] }>(
+        `/servers/${server.id}?deleteFiles=true&deleteBackups=true`
+      );
+      await refreshAll();
+
+      if ((response.warnings ?? []).length > 0) {
+        setNotice(`Deleted ${server.name} with warnings: ${(response.warnings ?? []).join(" ")}`);
+      } else {
+        setNotice(`Deleted ${server.name}.`);
+      }
+      setError(null);
+    } catch (e) {
+      setNotice(null);
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeletingServerId(null);
     }
   }
 
@@ -1259,6 +1384,16 @@ export default function App() {
               <button type="button" onClick={() => void createBackup(selectedServerId)}>
                 Backup
               </button>
+              {selectedServer ? (
+                <button
+                  type="button"
+                  className="danger-btn"
+                  onClick={() => void deleteServer(selectedServer)}
+                  disabled={deletingServerId === selectedServer.id}
+                >
+                  {deletingServerId === selectedServer.id ? "Deleting..." : "Delete"}
+                </button>
+              ) : null}
             </>
           ) : null}
         </div>
@@ -1419,6 +1554,14 @@ export default function App() {
                         <button onClick={() => void createBackup(server.id)} type="button">
                           Backup
                         </button>
+                        <button
+                          className="danger-btn"
+                          onClick={() => void deleteServer(server)}
+                          type="button"
+                          disabled={deletingServerId === server.id}
+                        >
+                          {deletingServerId === server.id ? "Deleting..." : "Delete"}
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1455,7 +1598,7 @@ export default function App() {
             </div>
             <div className="setup-recipes">
               <h3>Popular Recipes</h3>
-              <p className="muted-note">Based on common Squid-style flows: quick start, crossplay, modded, and optional non-premium access.</p>
+              <p className="muted-note">Based on common community hosting flows: quick start, crossplay, modded, and optional non-premium access.</p>
               <div className="inline-actions">
                 <button type="button" onClick={() => applySetupRecipe("crossplay")}>
                   Apply Crossplay Recipe
@@ -1588,6 +1731,45 @@ export default function App() {
                 {busy ? "Working..." : "Provision Server"}
               </button>
             </form>
+          </section>
+
+          <section className="panel">
+            <h2>Server Library</h2>
+            <p className="muted-note">Create and run multiple servers. Use this list to quickly switch context or remove old environments.</p>
+            <ul className="list">
+              {servers.map((server) => (
+                <li key={server.id}>
+                  <div>
+                    <strong>{server.name}</strong>
+                    <span>
+                      {server.type} {server.mcVersion} on port {server.port}
+                    </span>
+                    <span className={`status-pill tone-${statusTone(server.status)}`}>{normalizeStatus(server.status)}</span>
+                  </div>
+                  <div className="inline-actions">
+                    <button type="button" onClick={() => setSelectedServerId(server.id)}>
+                      Open
+                    </button>
+                    <button
+                      type="button"
+                      className="danger-btn"
+                      onClick={() => void deleteServer(server)}
+                      disabled={deletingServerId === server.id}
+                    >
+                      {deletingServerId === server.id ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
+                </li>
+              ))}
+              {servers.length === 0 ? (
+                <li>
+                  <div>
+                    <strong>No servers yet</strong>
+                    <span>Use Instant Launch above or the full setup form to create your first server.</span>
+                  </div>
+                </li>
+              ) : null}
+            </ul>
           </section>
 
           <section className="panel">
@@ -2045,20 +2227,45 @@ export default function App() {
             <summary>File Editor</summary>
             {selectedServerId ? (
               <>
-                <div className="inline-actions">
-                  {[
-                    "server.properties",
-                    "ops.json",
-                    "whitelist.json",
-                    "banned-ips.json",
-                    "banned-players.json"
-                  ].map((name) => (
-                    <button key={name} onClick={() => void loadFile(selectedServerId, name)} type="button">
-                      {name}
-                    </button>
-                  ))}
+                <div className="file-editor-toolbar">
+                  <label className="compact-field">
+                    Search files
+                    <input
+                      value={editorSearch}
+                      onChange={(event) => setEditorSearch(event.target.value)}
+                      placeholder="server.properties, plugins/..."
+                    />
+                  </label>
+                  <button type="button" onClick={() => void refreshEditorFiles(selectedServerId)}>
+                    Refresh File Index
+                  </button>
                 </div>
-                <textarea value={fileContent} onChange={(e) => setFileContent(e.target.value)} rows={16} />
+
+                <div className="file-editor-grid">
+                  <div className="file-list">
+                    {filteredEditorFiles.map((entry) => (
+                      <button
+                        key={entry.path}
+                        className={`file-list-item ${entry.path === filePath ? "active" : ""}`}
+                        onClick={() => openEditorFile(entry.path)}
+                        type="button"
+                      >
+                        <span>{entry.path}</span>
+                        <small>{entry.exists ? `${Math.max(1, Math.round(entry.sizeBytes / 1024))} KB` : "new file"}</small>
+                      </button>
+                    ))}
+                    {filteredEditorFiles.length === 0 ? (
+                      <div className="muted-note">No editable text files found for this server.</div>
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <p className="muted-note">
+                      Editing <code>{filePath}</code>
+                    </p>
+                    <textarea value={fileContent} onChange={(e) => setFileContent(e.target.value)} rows={18} disabled={loadingEditorFile} />
+                  </div>
+                </div>
                 <h3>Config Diff Preview</h3>
                 <div className="diff-box">
                   {computeDiff(fileOriginal, fileContent).length === 0 ? (
@@ -2071,9 +2278,20 @@ export default function App() {
                     ))
                   )}
                 </div>
-                <button onClick={() => void saveFile()} type="button">
-                  Save {fileName}
-                </button>
+                <div className="inline-actions">
+                  <button
+                    onClick={() => {
+                      setFileContent(fileOriginal);
+                    }}
+                    disabled={!hasFileChanges || loadingEditorFile}
+                    type="button"
+                  >
+                    Revert Unsaved
+                  </button>
+                  <button onClick={() => void saveEditorFile()} disabled={!hasFileChanges || savingEditorFile || loadingEditorFile} type="button">
+                    {savingEditorFile ? "Saving..." : `Save ${filePath}`}
+                  </button>
+                </div>
               </>
             ) : (
               <p>Select a server to edit config files.</p>

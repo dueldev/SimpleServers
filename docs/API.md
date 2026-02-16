@@ -35,6 +35,7 @@ Base URL: `http://127.0.0.1:4010`
 - `GET /servers`
 - `POST /servers` (`admin`)
 - `POST /servers/quickstart` (`admin`, one-call create + optional start + optional quick-host enable)
+- `DELETE /servers/:id?deleteFiles=<bool>&deleteBackups=<bool>` (`admin`, defaults `true/true`)
 - `POST /servers/:id/start` (`moderator`)
 - `POST /servers/:id/stop` (`moderator`)
 - `POST /servers/:id/restart` (`moderator`)
@@ -52,6 +53,13 @@ Base URL: `http://127.0.0.1:4010`
 - `publicHosting=true`
 
 ## File Editing
+
+- `GET /servers/:id/editor/files` (indexed editable text files)
+- `GET /servers/:id/editor/file?path=<relativePath>`
+- `PUT /servers/:id/editor/file` (`admin`)
+- `POST /servers/:id/editor/file/diff`
+
+Legacy file-specific routes are still supported:
 
 - `GET /servers/:id/files/:fileName`
 - `PUT /servers/:id/files/:fileName` (`admin`)

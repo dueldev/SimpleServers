@@ -234,8 +234,27 @@ test("connects and renders dashboard sections", async ({ page }) => {
       return;
     }
 
-    if (pathname === "/servers/srv_1/files/server.properties" && method === "GET") {
-      await withJson(200, { fileName: "server.properties", content: "motd=SimpleServers" });
+    if (pathname === "/servers/srv_1/editor/files" && method === "GET") {
+      await withJson(200, {
+        files: [
+          {
+            path: "server.properties",
+            sizeBytes: 22,
+            updatedAt: new Date().toISOString(),
+            exists: true
+          }
+        ]
+      });
+      return;
+    }
+
+    if (pathname === "/servers/srv_1/editor/file" && method === "GET") {
+      await withJson(200, { path: "server.properties", content: "motd=SimpleServers" });
+      return;
+    }
+
+    if (pathname === "/servers/srv_1/editor/file" && method === "PUT") {
+      await withJson(200, { ok: true, path: "server.properties" });
       return;
     }
 

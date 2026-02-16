@@ -1,6 +1,6 @@
 {
   "name": "simpleservers-desktop",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "private": true,
   "description": "SimpleServers desktop shell",
   "author": {
@@ -37,9 +37,9 @@
     "zod": "^4.1.5"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
     "electron": "37.10.3",
     "electron-builder": "^26.0.12",
-    "@electron/rebuild": "^4.0.3",
     "typescript": "^5.9.2"
   }
 }

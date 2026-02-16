@@ -171,6 +171,64 @@ describe("api integration", () => {
     expect(response.json().packages).toEqual([]);
   });
 
+  it("indexes and edits server files through editor endpoints", async () => {
+    const serverRoot = path.join(testDataDir, "servers", "editor-server");
+    fs.mkdirSync(path.join(serverRoot, "config"), { recursive: true });
+    fs.writeFileSync(path.join(serverRoot, "server.properties"), "motd=Before\\n", "utf8");
+    fs.writeFileSync(path.join(serverRoot, "config", "paper-global.yml"), "timings:\\n  enabled: false\\n", "utf8");
+
+    const server = store.createServer({
+      name: "editor-server",
+      type: "paper",
+      mcVersion: "1.21.11",
+      jarPath: path.join(serverRoot, "server.jar"),
+      rootPath: serverRoot,
+      javaPath: "java",
+      port: 25601,
+      bedrockPort: null,
+      minMemoryMb: 1024,
+      maxMemoryMb: 2048
+    });
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: `/servers/${server.id}/editor/files`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      }
+    });
+
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().files.some((entry: { path: string }) => entry.path === "server.properties")).toBe(true);
+    expect(listResponse.json().files.some((entry: { path: string }) => entry.path === "config/paper-global.yml")).toBe(true);
+
+    const readResponse = await app.inject({
+      method: "GET",
+      url: `/servers/${server.id}/editor/file?path=server.properties`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      }
+    });
+
+    expect(readResponse.statusCode).toBe(200);
+    expect(readResponse.json().content).toContain("motd=Before");
+
+    const writeResponse = await app.inject({
+      method: "PUT",
+      url: `/servers/${server.id}/editor/file`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {
+        path: "config/paper-global.yml",
+        content: "timings:\\n  enabled: true\\n"
+      }
+    });
+
+    expect(writeResponse.statusCode).toBe(200);
+    expect(fs.readFileSync(path.join(serverRoot, "config", "paper-global.yml"), "utf8")).toContain("enabled: true");
+  });
+
   it("returns default backup policy and updates it", async () => {
     const policyGet = await app.inject({
       method: "GET",
@@ -282,6 +340,48 @@ describe("api integration", () => {
     expect(status.json().server.id).toBe(quickHostServer.id);
     expect(status.json().server.localAddress).toBe("127.0.0.1:25592");
     expect(status.json().publicAddress).toContain("pending.playit.gg");
+  });
+
+  it("deletes a server and removes local files and backup archives", async () => {
+    const serverRoot = path.join(testDataDir, "servers", "delete-server");
+    fs.mkdirSync(serverRoot, { recursive: true });
+    fs.writeFileSync(path.join(serverRoot, "server.properties"), "motd=delete me\\n", "utf8");
+
+    const deleteServer = store.createServer({
+      name: "delete-server",
+      type: "paper",
+      mcVersion: "1.21.11",
+      jarPath: path.join(serverRoot, "server.jar"),
+      rootPath: serverRoot,
+      javaPath: "java",
+      port: 25602,
+      bedrockPort: null,
+      minMemoryMb: 1024,
+      maxMemoryMb: 2048
+    });
+
+    const backupFilePath = path.join(testDataDir, "backups", "delete-server-backup.tar.gz");
+    fs.mkdirSync(path.dirname(backupFilePath), { recursive: true });
+    fs.writeFileSync(backupFilePath, "backup", "utf8");
+    store.createBackup({
+      serverId: deleteServer.id,
+      filePath: backupFilePath,
+      sizeBytes: 6
+    });
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/servers/${deleteServer.id}?deleteFiles=true&deleteBackups=true`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().ok).toBe(true);
+    expect(store.getServerById(deleteServer.id)).toBeUndefined();
+    expect(fs.existsSync(serverRoot)).toBe(false);
+    expect(fs.existsSync(backupFilePath)).toBe(false);
   });
 
   it("accepts empty JSON POST bodies for lifecycle actions", async () => {

@@ -95,17 +95,23 @@ Default log paths:
 
 ## Recent Release Notes
 
+- `v0.1.13`
+  - Added API and UI support for deleting servers, including runtime/tunnel shutdown and cleanup of local server files/backups.
+  - Added new in-app file-browser endpoints for editable text configs and wired them into the Advanced workspace editor.
+  - Improved server-file editing UX with searchable file index, unsaved-change protection, and save/revert controls.
+  - Expanded setup UX with a server library panel for easier multi-server management.
+  - Updated dashboard visual design for stronger hierarchy and clearer control states.
 - `v0.1.12`
   - Hardened API JSON parsing so empty-body JSON lifecycle actions are accepted safely instead of failing before route handlers.
   - Added server existence validation on stop actions.
   - Added guided setup recipes for crossplay/modded/non-premium workflows.
   - Added auto-refresh of tunnel status while pending and a dedicated troubleshooting panel in the Manage workspace.
-  - Expanded SquidServers parity mapping with onboarding/install and common-flow research.
+  - Expanded onboarding/install guidance coverage for common hosting flows.
 - `v0.1.11`
   - Fixed dashboard POST behavior for bodyless actions (for example `Stop`) by omitting `content-type: application/json` when no request body is sent.
   - Added clearer status visibility and action guardrails (connection state, server status badges, disabled invalid lifecycle actions).
   - Added explicit quick-host tunnel pending/running feedback and stronger empty-state guidance.
-  - Added SquidServers parity research notes in `docs/SQUID_PARITY.md`.
+  - Added setup-flow reference notes for future onboarding UX improvements.
 - `v0.1.10`
   - Reworked web dashboard IA into focused views (`Overview`, `Setup`, `Manage`, `Content`, `Advanced`).
   - Added progressive disclosure with a Power mode toggle so first-time users are not overloaded by advanced controls.

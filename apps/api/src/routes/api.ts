@@ -25,6 +25,25 @@ import { PreflightService } from "../services/preflight-service.js";
 
 const config = loadConfig();
 const editableFiles = new Set(["server.properties", "ops.json", "whitelist.json", "banned-ips.json", "banned-players.json"]);
+const editableTextExtensions = new Set([
+  ".properties",
+  ".json",
+  ".txt",
+  ".cfg",
+  ".conf",
+  ".ini",
+  ".toml",
+  ".yaml",
+  ".yml",
+  ".xml",
+  ".mcmeta",
+  ".md"
+]);
+const editableDirectoryRoots = ["", "config", "plugins", "mods", "world/datapacks"];
+const ignoredDirectoryNames = new Set(["node_modules", "libraries", ".git", "cache", "logs"]);
+const maxEditableFileBytes = 1024 * 1024; // 1 MB safety guard for in-app editing.
+const maxEditorFiles = 350;
+const maxEditorDepth = 5;
 
 const userCreateSchema = z.object({
   username: z.string().min(2).max(24),
@@ -124,6 +143,25 @@ const remoteConfigSchema = z.object({
   requireToken: z.boolean().optional()
 });
 
+const deleteServerQuerySchema = z.object({
+  deleteFiles: z.coerce.boolean().default(true),
+  deleteBackups: z.coerce.boolean().default(true)
+});
+
+const editorFileQuerySchema = z.object({
+  path: z.string().trim().min(1).max(260)
+});
+
+const editorWriteSchema = z.object({
+  path: z.string().trim().min(1).max(260),
+  content: z.string()
+});
+
+const editorDiffSchema = z.object({
+  path: z.string().trim().min(1).max(260),
+  nextContent: z.string()
+});
+
 function applyPreset(payload: z.infer<typeof createServerSchema>): z.infer<typeof createServerSchema> {
   if (payload.preset === "survival") {
     return {
@@ -219,6 +257,132 @@ function validateEditableFile(fileName: string): string {
     throw new Error(`File ${fileName} is not editable via API`);
   }
   return fileName;
+}
+
+function normalizeRelativePath(value: string): string {
+  return value.replaceAll("\\", "/").replace(/^\/+/, "").replace(/\/+/g, "/");
+}
+
+function isPathInsideRoot(rootPath: string, targetPath: string): boolean {
+  const resolvedRoot = path.resolve(rootPath);
+  const resolvedTarget = path.resolve(targetPath);
+  const relative = path.relative(resolvedRoot, resolvedTarget);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function isTextEditablePath(fileNameOrPath: string): boolean {
+  const baseName = path.basename(fileNameOrPath);
+  if (editableFiles.has(baseName)) {
+    return true;
+  }
+  const extension = path.extname(baseName).toLowerCase();
+  return editableTextExtensions.has(extension);
+}
+
+function resolveEditorFilePath(serverRoot: string, requestedPath: string): { relativePath: string; absolutePath: string } {
+  const relativePath = normalizeRelativePath(requestedPath);
+  if (!relativePath || relativePath.includes("\0")) {
+    throw new Error("Invalid file path");
+  }
+
+  if (!isTextEditablePath(relativePath)) {
+    throw new Error(`File ${relativePath} is not editable via API`);
+  }
+
+  const absolutePath = path.resolve(serverRoot, relativePath);
+  if (!isPathInsideRoot(serverRoot, absolutePath)) {
+    throw new Error("File path escapes server directory");
+  }
+
+  return { relativePath, absolutePath };
+}
+
+function listEditableFiles(serverRoot: string): Array<{ path: string; sizeBytes: number; updatedAt: string | null; exists: boolean }> {
+  const files = new Map<string, { path: string; sizeBytes: number; updatedAt: string | null; exists: boolean }>();
+
+  const addEntry = (relativePath: string, stats?: fs.Stats): void => {
+    const normalized = normalizeRelativePath(relativePath);
+    if (!normalized || files.size >= maxEditorFiles) {
+      return;
+    }
+
+    files.set(normalized, {
+      path: normalized,
+      sizeBytes: stats?.size ?? 0,
+      updatedAt: stats?.mtime ? new Date(stats.mtime).toISOString() : null,
+      exists: Boolean(stats)
+    });
+  };
+
+  const walkDirectory = (absoluteDir: string, relativeDir: string, depth: number): void => {
+    if (depth > maxEditorDepth || files.size >= maxEditorFiles) {
+      return;
+    }
+
+    if (!fs.existsSync(absoluteDir)) {
+      return;
+    }
+
+    const entries = fs.readdirSync(absoluteDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (files.size >= maxEditorFiles) {
+        return;
+      }
+
+      const nextRelativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+      const nextAbsolutePath = path.join(absoluteDir, entry.name);
+
+      if (!isPathInsideRoot(serverRoot, nextAbsolutePath)) {
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        if (ignoredDirectoryNames.has(entry.name) || entry.name.startsWith(".")) {
+          continue;
+        }
+        walkDirectory(nextAbsolutePath, nextRelativePath, depth + 1);
+        continue;
+      }
+
+      if (!entry.isFile() || !isTextEditablePath(nextRelativePath)) {
+        continue;
+      }
+
+      const stats = fs.statSync(nextAbsolutePath);
+      if (stats.size > maxEditableFileBytes) {
+        continue;
+      }
+      addEntry(nextRelativePath, stats);
+    }
+  };
+
+  for (const root of editableDirectoryRoots) {
+    const absoluteRoot = root ? path.join(serverRoot, root) : serverRoot;
+    walkDirectory(absoluteRoot, normalizeRelativePath(root), 0);
+  }
+
+  for (const knownFile of editableFiles) {
+    if (!files.has(knownFile)) {
+      const knownPath = path.join(serverRoot, knownFile);
+      if (fs.existsSync(knownPath)) {
+        const stats = fs.statSync(knownPath);
+        if (stats.isFile() && stats.size <= maxEditableFileBytes) {
+          addEntry(knownFile, stats);
+          continue;
+        }
+      }
+      addEntry(knownFile);
+    }
+  }
+
+  return [...files.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function removeFileIfPresent(filePath: string): void {
+  if (!fs.existsSync(filePath)) {
+    return;
+  }
+  fs.rmSync(filePath, { recursive: true, force: true });
 }
 
 function writeAudit(actor: string, action: string, targetType: string, targetId: string, payload?: unknown): void {
@@ -580,6 +744,74 @@ export async function registerApiRoutes(
     };
   });
 
+  app.delete("/servers/:id", { preHandler: [authenticate, requireRole("admin")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const query = deleteServerQuerySchema.parse(request.query ?? {});
+    const server = store.getServerById(id);
+    if (!server) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+
+    try {
+      await deps.tunnels.stopTunnelsForServer(id);
+      await deps.runtime.stop(id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw app.httpErrors.conflict(`Could not stop server resources before delete: ${message}`);
+    }
+
+    const warnings: string[] = [];
+
+    if (query.deleteBackups) {
+      const backups = store.listBackups(id);
+      for (const backup of backups) {
+        if (!isPathInsideRoot(config.backupsDir, backup.filePath)) {
+          warnings.push(`Skipped backup cleanup outside backups directory: ${backup.filePath}`);
+          continue;
+        }
+        try {
+          removeFileIfPresent(backup.filePath);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          warnings.push(`Failed to delete backup ${backup.filePath}: ${message}`);
+        }
+      }
+    }
+
+    store.deleteServer(id);
+    deps.tasks.refresh();
+    deps.backupRetention.refresh();
+
+    if (query.deleteFiles) {
+      if (!isPathInsideRoot(config.serversDir, server.rootPath)) {
+        warnings.push(`Skipped server directory cleanup outside servers directory: ${server.rootPath}`);
+      } else {
+        try {
+          removeFileIfPresent(server.rootPath);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          warnings.push(`Failed to delete server directory ${server.rootPath}: ${message}`);
+        }
+      }
+    }
+
+    writeAudit(request.user!.username, "server.delete", "server", id, {
+      deleteFiles: query.deleteFiles,
+      deleteBackups: query.deleteBackups,
+      warnings
+    });
+
+    return {
+      ok: true,
+      deleted: {
+        serverId: id,
+        deleteFiles: query.deleteFiles,
+        deleteBackups: query.deleteBackups
+      },
+      warnings
+    };
+  });
+
   app.post("/servers/:id/start", { preHandler: [authenticate, requireRole("moderator")] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const server = store.getServerById(id);
@@ -711,6 +943,92 @@ export async function registerApiRoutes(
       connection.on("close", () => unsubscribe());
     }
   );
+
+  app.get("/servers/:id/editor/files", { preHandler: [authenticate] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const server = store.getServerById(id);
+    if (!server) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+
+    return {
+      files: listEditableFiles(server.rootPath)
+    };
+  });
+
+  app.get("/servers/:id/editor/file", { preHandler: [authenticate] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const query = editorFileQuerySchema.parse(request.query);
+    const server = store.getServerById(id);
+    if (!server) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+
+    const resolved = resolveEditorFilePath(server.rootPath, query.path);
+    if (!fs.existsSync(resolved.absolutePath)) {
+      return {
+        path: resolved.relativePath,
+        content: "",
+        exists: false
+      };
+    }
+
+    const stats = fs.statSync(resolved.absolutePath);
+    if (!stats.isFile()) {
+      throw app.httpErrors.badRequest("Requested path is not a file");
+    }
+
+    if (stats.size > maxEditableFileBytes) {
+      throw app.httpErrors.badRequest(`File is larger than ${Math.floor(maxEditableFileBytes / 1024)} KB editor limit`);
+    }
+
+    return {
+      path: resolved.relativePath,
+      content: fs.readFileSync(resolved.absolutePath, "utf8"),
+      exists: true
+    };
+  });
+
+  app.put("/servers/:id/editor/file", { preHandler: [authenticate, requireRole("admin")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = editorWriteSchema.parse(request.body);
+    const server = store.getServerById(id);
+    if (!server) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+
+    const resolved = resolveEditorFilePath(server.rootPath, body.path);
+    const fileSize = Buffer.byteLength(body.content, "utf8");
+    if (fileSize > maxEditableFileBytes) {
+      throw app.httpErrors.badRequest(`File content exceeds ${Math.floor(maxEditableFileBytes / 1024)} KB editor limit`);
+    }
+
+    fs.mkdirSync(path.dirname(resolved.absolutePath), { recursive: true });
+    fs.writeFileSync(resolved.absolutePath, body.content, "utf8");
+
+    writeAudit(request.user!.username, "server.editor_file.update", "server", id, {
+      path: resolved.relativePath,
+      sizeBytes: fileSize
+    });
+
+    return { ok: true, path: resolved.relativePath };
+  });
+
+  app.post("/servers/:id/editor/file/diff", { preHandler: [authenticate] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const body = editorDiffSchema.parse(request.body);
+    const server = store.getServerById(id);
+    if (!server) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+
+    const resolved = resolveEditorFilePath(server.rootPath, body.path);
+    const current = fs.existsSync(resolved.absolutePath) ? fs.readFileSync(resolved.absolutePath, "utf8") : "";
+    return {
+      path: resolved.relativePath,
+      diff: buildSimpleDiff(current, body.nextContent)
+    };
+  });
 
   app.get("/servers/:id/files/:fileName", { preHandler: [authenticate] }, async (request) => {
     const { id, fileName } = request.params as { id: string; fileName: string };
@@ -1098,7 +1416,7 @@ export async function registerApiRoutes(
 
   app.get("/meta", async () => ({
     name: "SimpleServers",
-    version: "0.1.0",
+    version: "0.1.13",
     dataDir: config.dataDir
   }));
 
