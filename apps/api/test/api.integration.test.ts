@@ -26,7 +26,22 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close();
-  fs.rmSync(testDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  const { closeDb } = await import("../src/lib/db.js");
+  closeDb();
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      fs.rmSync(testDataDir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EBUSY" && code !== "ENOTEMPTY" && code !== "EPERM") {
+        throw error;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+  }
 });
 
 describe("api integration", () => {

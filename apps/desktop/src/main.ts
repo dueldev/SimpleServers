@@ -18,6 +18,8 @@ const STARTUP_TIMEOUT_MS = 45_000;
 let mainWindow: BrowserWindow | null = null;
 let apiProcess: ChildProcessWithoutNullStreams | null = null;
 let updateInterval: NodeJS.Timeout | null = null;
+let latestApiFailure: string | null = null;
+let desktopLogPath: string | null = null;
 
 function isDevMode(): boolean {
   return process.env.SIMPLESERVERS_DESKTOP_DEV === "1" || !app.isPackaged;
@@ -43,9 +45,22 @@ function escapeHtml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
+function writeDesktopLog(message: string): void {
+  const line = `[${new Date().toISOString()}] ${message}\n`;
+  if (desktopLogPath) {
+    fs.appendFileSync(desktopLogPath, line, "utf8");
+  }
+  // eslint-disable-next-line no-console
+  console.log(message);
+}
+
 async function waitForApiReady(baseUrl: string, timeoutMs = STARTUP_TIMEOUT_MS): Promise<void> {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
+    if (latestApiFailure) {
+      throw new Error(`Embedded API failed during startup: ${latestApiFailure}`);
+    }
+
     try {
       const res = await fetch(`${baseUrl}/health`);
       if (res.ok) {
@@ -156,14 +171,23 @@ function startEmbeddedApi(): void {
       SIMPLESERVERS_PORT: DEFAULT_API_PORT,
       SIMPLESERVERS_DATA_DIR: dataDir
     },
-    stdio: "pipe"
+    stdio: "pipe",
+    windowsHide: true
   });
 
   apiProcess.stdout.pipe(logStream);
   apiProcess.stderr.pipe(logStream);
 
+  latestApiFailure = null;
+  apiProcess.on("error", (error) => {
+    latestApiFailure = `spawn error: ${error.message}`;
+    writeDesktopLog(`api spawn error: ${error.message}`);
+  });
+
   apiProcess.on("exit", (code) => {
+    latestApiFailure = `exit code=${String(code)}`;
     logStream.write(`\n[api-exit] code=${String(code)}\n`);
+    writeDesktopLog(`api exited with code ${String(code)}`);
     apiProcess = null;
   });
 }
@@ -244,8 +268,30 @@ async function createMainWindow(): Promise<void> {
     show: false
   });
 
+  const showFallbackTimer = setTimeout(() => {
+    if (mainWindow && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  }, 2500);
+
   mainWindow.once("ready-to-show", () => {
+    clearTimeout(showFallbackTimer);
     mainWindow?.show();
+  });
+
+  mainWindow.on("closed", () => {
+    clearTimeout(showFallbackTimer);
+    mainWindow = null;
+  });
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    writeDesktopLog(`renderer crashed: reason=${details.reason} exitCode=${String(details.exitCode)}`);
+  });
+
+  mainWindow.webContents.on("did-fail-load", (_event, code, description, url, isMainFrame) => {
+    if (isMainFrame) {
+      writeDesktopLog(`renderer load failed: code=${String(code)} description=${description} url=${url}`);
+    }
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -277,7 +323,11 @@ async function handleBootFailure(error: unknown): Promise<void> {
   const detail = error instanceof Error ? `${error.message}` : String(error);
   const logDir = app.getPath("userData");
   const message = `SimpleServers could not finish startup.\n\n${detail}\n\nLogs: ${logDir}`;
+  writeDesktopLog(`boot failure: ${detail}`);
   await loadBootScreen("Startup failed", message);
+  if (mainWindow && !mainWindow.isVisible()) {
+    mainWindow.show();
+  }
 
   const dialogOptions = {
     type: "error" as const,
@@ -299,8 +349,10 @@ async function handleBootFailure(error: unknown): Promise<void> {
 
 async function boot(): Promise<void> {
   app.setName("SimpleServers");
+  writeDesktopLog("boot start");
 
   if (!app.requestSingleInstanceLock()) {
+    writeDesktopLog("second instance detected; exiting");
     app.quit();
     return;
   }
@@ -318,13 +370,17 @@ async function boot(): Promise<void> {
   });
 
   await app.whenReady();
+  desktopLogPath = path.join(app.getPath("userData"), "desktop.log");
+  writeDesktopLog("app ready");
 
   await createMainWindow();
   try {
     startEmbeddedApi();
     configureAutoUpdates();
     await waitForApiReady(DEFAULT_API_BASE);
+    writeDesktopLog("api ready; loading renderer");
     await loadMainRenderer();
+    writeDesktopLog("renderer loaded");
   } catch (error) {
     await handleBootFailure(error);
   }
@@ -360,8 +416,17 @@ async function boot(): Promise<void> {
   });
 }
 
+process.on("uncaughtException", (error) => {
+  writeDesktopLog(`uncaught exception: ${error.message}`);
+});
+
+process.on("unhandledRejection", (reason) => {
+  writeDesktopLog(`unhandled rejection: ${String(reason)}`);
+});
+
 void boot().catch((error) => {
   // eslint-disable-next-line no-console
   console.error("Desktop boot failed", error);
+  writeDesktopLog(`desktop boot failed: ${String(error)}`);
   app.quit();
 });

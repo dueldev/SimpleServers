@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <defs>
+    <linearGradient id="gTop" x1="220" y1="210" x2="820" y2="410" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9BD93C"/>
+      <stop offset="0.55" stop-color="#CDEB57"/>
+      <stop offset="1" stop-color="#E9F45F"/>
+    </linearGradient>
+    <linearGradient id="gLeft" x1="190" y1="300" x2="520" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F2D4E"/>
+      <stop offset="1" stop-color="#1D6AA8"/>
+    </linearGradient>
+    <linearGradient id="gRight" x1="520" y1="360" x2="860" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD33D"/>
+      <stop offset="0.55" stop-color="#FF9E1C"/>
+      <stop offset="1" stop-color="#F05C1A"/>
+    </linearGradient>
+    <linearGradient id="gEdge" x1="512" y1="360" x2="512" y2="780" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8EE7FF" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#59C9FF" stop-opacity="0.8"/>
+    </linearGradient>
+    <filter id="shadow" x="60" y="140" width="904" height="814" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="28" stdDeviation="18" flood-color="#020406" flood-opacity="0.65"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#shadow)">
+    <polygon points="512,160 840,280 512,430 184,280" fill="url(#gTop)"/>
+    <polygon points="184,280 512,430 512,780 184,630" fill="url(#gLeft)"/>
+    <polygon points="840,280 512,430 512,780 840,630" fill="url(#gRight)"/>
+
+    <polygon points="184,280 512,430 840,280" stroke="#E9F8A0" stroke-width="8" stroke-opacity="0.8" fill="none"/>
+    <line x1="512" y1="430" x2="512" y2="780" stroke="url(#gEdge)" stroke-width="6"/>
+
+    <polygon points="520,444 834,302 834,620 520,758" fill="#FFFFFF" opacity="0.23"/>
+    <polygon points="520,476 818,342 818,604 520,736" fill="#FFFFFF" opacity="0.14"/>
+
+    <g opacity="0.95">
+      <rect x="230" y="430" width="52" height="52" rx="8" fill="#F0F944" stroke="#071018" stroke-width="7"/>
+      <rect x="300" y="455" width="52" height="52" rx="8" fill="#F7712F" stroke="#071018" stroke-width="7"/>
+      <rect x="230" y="520" width="52" height="52" rx="8" fill="#FFC12A" stroke="#071018" stroke-width="7"/>
+      <rect x="300" y="548" width="52" height="52" rx="8" fill="#6FEA4A" stroke="#071018" stroke-width="7"/>
+    </g>
+
+    <g opacity="0.22">
+      <path d="M220 280L496 396" stroke="#0A120F" stroke-width="12"/>
+      <path d="M274 260L550 378" stroke="#0A120F" stroke-width="12"/>
+      <path d="M328 238L604 356" stroke="#0A120F" stroke-width="12"/>
+      <path d="M382 218L658 336" stroke="#0A120F" stroke-width="12"/>
+      <path d="M436 198L712 316" stroke="#0A120F" stroke-width="12"/>
+      <path d="M490 178L766 296" stroke="#0A120F" stroke-width="12"/>
+    </g>
+  </g>
+</svg>
