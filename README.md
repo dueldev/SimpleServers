@@ -4,10 +4,10 @@ SimpleServers is an open-source, local-first Minecraft server hosting and admini
 
 It is designed as a stronger open alternative to closed desktop hosts: fast setup, safer operations, and richer owner tooling.
 
-Latest stable desktop release: `v0.3.1`
+Latest stable desktop release: `v0.4.0`
 
 - Releases: `https://github.com/charlesshaw3/SimpleServers/releases`
-- Current release: `https://github.com/charlesshaw3/SimpleServers/releases/tag/v0.3.1`
+- Current release: `https://github.com/charlesshaw3/SimpleServers/releases/tag/v0.4.0`
 
 ## Production Features
 
@@ -42,6 +42,10 @@ Latest stable desktop release: `v0.3.1`
 - Multi-server bulk operations for lifecycle, backups, and one-click `Go Live` across selected servers.
 - Per-server Performance Advisor with RAM/CPU trend snapshots, tick-lag detection, startup trend hints, and guided recommendations.
 - In-app Trust workspace with signed-build status, security transparency controls, and verification link surface.
+- Quick Actions command palette (`Ctrl/Cmd + K` or `/`) for goal-first navigation and one-click operations.
+- Next Best Action panel in Overview with a single recommended step for non-technical operators.
+- File snapshot history + rollback in Advanced editor for all editable text files.
+- Enhanced tunnel diagnostics recovery actions (`Restart Tunnel Agent`, `Run Go Live Recovery`) for unresolved Playit states.
 - Desktop app packaging with release update channels.
 
 ## Ship Status
@@ -145,6 +149,7 @@ export SIMPLESERVERS_REMOTE_TOKEN='replace-this-too'
 - On first launch, the desktop app boots an embedded API and then loads the UI.
 - A startup screen is shown while services initialize.
 - The app writes startup diagnostics to a desktop log for fast triage.
+- `v0.4.0` adds Quick Actions command palette UX, Next Best Action guidance, full-file snapshot rollback in Advanced editor, and stronger quick-host recovery actions.
 - `v0.3.1` adds multi-server bulk operations, a per-server Performance Advisor, and a new Trust workspace for build/security transparency.
 - `v0.2.2` adds a command-center overview (`Create Server`, `Go Live`), goal-first cards, network-health one-click fixes, Crash Doctor runbook automation, global beginner/advanced modes, persistent themes, and API-backed config snapshot rollback.
 - `v0.2.1` adds first-run startup wizard UX, public-hosting diagnostics, guided config editing with snapshots, crash-recovery helper actions, support bundle export, and local onboarding funnel telemetry.
@@ -185,6 +190,7 @@ Embedded API log locations:
 - `docs/ARCHITECTURE.md` architecture and security/runtime model
 - `docs/RELEASE.md` release, signing, and update-channel operations
 - `docs/ROADMAP.md` implemented roadmap and post-1.0 track
+- `docs/UX_RESEARCH.md` UX benchmark inputs and release implementation mapping
 
 ## Security Notes
 

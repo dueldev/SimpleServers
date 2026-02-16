@@ -95,6 +95,12 @@ Default log paths:
 
 ## Recent Release Notes
 
+- `v0.4.0`
+  - Added a new `Next Best Action` panel in Overview so non-technical users always have one recommended next step.
+  - Added global Quick Actions command palette (`Ctrl/Cmd + K` / `/`) for fast navigation and one-click operations.
+  - Added full-file snapshot history + rollback controls in Advanced editor for safer config editing across all editable files.
+  - Added stronger quick-host diagnostics recovery fixes (`restart_tunnel`, `go_live_recovery`) for unresolved Playit tunnel states.
+  - Refined visual hierarchy and interaction flow to reduce dead-end navigation during setup/start/publish journeys.
 - `v0.3.1`
   - Added multi-server bulk actions (`start`, `stop`, `restart`, `backup`, `goLive`) with per-server success/failure summaries.
   - Added per-server Performance Advisor endpoint/UI with RAM/CPU snapshots, startup trend analysis, and tick-lag detection hints.

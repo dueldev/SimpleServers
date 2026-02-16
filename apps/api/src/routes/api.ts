@@ -44,7 +44,7 @@ const ignoredDirectoryNames = new Set(["node_modules", "libraries", ".git", "cac
 const maxEditableFileBytes = 1024 * 1024; // 1 MB safety guard for in-app editing.
 const maxEditorFiles = 350;
 const maxEditorDepth = 5;
-const APP_VERSION = "0.3.1";
+const APP_VERSION = "0.4.0";
 const REPOSITORY_URL = "https://github.com/charlesshaw3/SimpleServers";
 
 const userCreateSchema = z.object({
@@ -1996,6 +1996,13 @@ export async function registerApiRoutes(
         description: "Attempt to auto-install Playit and launch the tunnel."
       });
     }
+    if (diagnostics && (diagnostics.status === "error" || diagnostics.status === "pending")) {
+      fixes.push({
+        id: "restart_tunnel",
+        label: "Restart Tunnel Agent",
+        description: "Restart the tunnel process to recover from stale or broken sessions."
+      });
+    }
     if (diagnostics?.provider === "playit" && diagnostics.authConfigured === false) {
       fixes.push({
         id: "copy_playit_auth_steps",
@@ -2008,6 +2015,11 @@ export async function registerApiRoutes(
         id: "refresh_diagnostics",
         label: "Retry Endpoint Check",
         description: "Run tunnel diagnostics again and force an endpoint sync attempt."
+      });
+      fixes.push({
+        id: "go_live_recovery",
+        label: "Run Go Live Recovery",
+        description: "Run start + quick-host activation + endpoint sync in one guided flow."
       });
     }
 

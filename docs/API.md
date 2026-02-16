@@ -96,6 +96,8 @@ Allowed files:
 - `banned-ips.json`
 - `banned-players.json`
 
+`editor/file/snapshots` and `editor/file/rollback` work for any indexed editable text file returned by `editor/files`.
+
 ## Backups
 
 - `GET /servers/:id/backups`
@@ -121,6 +123,13 @@ Notes:
 - Playit-backed tunnels now synchronize assigned public host/port from Playit run data.
 - `publicAddress` remains `null` while Playit is still assigning an endpoint (`pending`/`starting` states).
 - diagnostics include command availability, auth status, endpoint assignment state, retry timing metadata, and `fixes` action metadata for one-click UI recovery.
+- diagnostics `fixes` can include:
+  - `start_server`
+  - `start_tunnel`
+  - `restart_tunnel`
+  - `copy_playit_auth_steps`
+  - `refresh_diagnostics`
+  - `go_live_recovery`
 
 ## Tasks
 

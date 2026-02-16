@@ -2,7 +2,18 @@
 
 ## Status
 
-Current stable milestone: `v0.3.1` (validated by local typecheck/tests/build).
+Current stable milestone: `v0.4.0` (validated by local typecheck/tests/build).
+
+## Implemented in v0.4.0
+
+- Added `Next Best Action` guidance panel in Overview for non-technical operators.
+- Added global `Quick Actions` command palette (`Ctrl/Cmd + K` or `/`) for direct goal-first actions.
+- Added full-file snapshot history + rollback controls in Advanced editor (not just `server.properties` form).
+- Added stronger quick-host recovery fixes in diagnostics (`restart_tunnel`, `go_live_recovery`).
+- Added multi-user onboarding and owner-only token rotation workflows.
+- Added optional remote-control mode with hardened non-local defaults.
+- Added startup preflight diagnostics for plugin/mod conflicts and required files.
+- Added structured crash report bundles for issue filing.
 
 ## Implemented in v0.3.1
 
@@ -46,13 +57,6 @@ Current stable milestone: `v0.3.1` (validated by local typecheck/tests/build).
 - Backup retention policies with scheduled pruning jobs.
 - CPU, memory, and disk alerting.
 - Java runtime channels and runtime update signals.
-
-## Implemented in v0.4.0
-
-- Multi-user onboarding and owner-only token rotation workflows.
-- Optional remote-control mode with hardened non-local defaults.
-- Startup preflight diagnostics for plugin/mod conflicts and required files.
-- Structured crash report bundles for issue filing.
 
 ## Implemented in v1.0.0
 

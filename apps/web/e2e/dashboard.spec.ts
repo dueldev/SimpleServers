@@ -444,7 +444,7 @@ test("connects and renders dashboard sections", async ({ page }) => {
       await withJson(200, {
         generatedAt: new Date().toISOString(),
         build: {
-          appVersion: "0.3.1",
+          appVersion: "0.4.0",
           platform: "darwin",
           arch: "arm64",
           nodeVersion: "v20.0.0",
@@ -592,7 +592,12 @@ test("connects and renders dashboard sections", async ({ page }) => {
   await page.getByRole("button", { name: "Search" }).click();
   await expect(page.getByText("Sodium")).toBeVisible();
 
-  await page.getByRole("button", { name: "Trust" }).click();
+  await page.getByRole("button", { name: "Quick Actions" }).click();
+  await expect(page.getByRole("heading", { name: "Quick Actions" })).toBeVisible();
+  await page.getByRole("button", { name: /Open Trust Workspace/i }).click();
+  await expect(page.getByRole("heading", { name: "Security Transparency" })).toBeVisible();
+
+  await page.getByRole("button", { name: /^Trust$/ }).click();
   await expect(page.getByRole("heading", { name: "Security Transparency" })).toBeVisible();
   await page.getByRole("button", { name: "Content" }).click();
 

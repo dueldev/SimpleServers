@@ -207,6 +207,17 @@ a {
   margin: 12px 0;
 }
 
+.next-action-card {
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
+  background:
+    radial-gradient(circle at 6% 8%, color-mix(in srgb, var(--primary) 24%, transparent), transparent 48%),
+    linear-gradient(166deg, color-mix(in srgb, var(--surface-strong) 90%, transparent), color-mix(in srgb, var(--surface) 92%, transparent));
+}
+
+.next-action-card .inline-actions {
+  margin-top: 8px;
+}
+
 .primary-cta {
   min-height: 56px;
   font-size: 1rem;
@@ -750,6 +761,66 @@ th {
   font-size: 0.85rem;
 }
 
+.command-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(4, 8, 14, 0.65);
+  display: grid;
+  place-items: start center;
+  padding: 80px 16px 24px;
+}
+
+.command-palette {
+  width: min(760px, 96vw);
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--border));
+  background: linear-gradient(170deg, var(--surface-strong), var(--surface));
+  box-shadow: 0 28px 64px rgba(0, 0, 0, 0.44);
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.command-palette-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.command-palette-header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.command-palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-height: min(52vh, 460px);
+  overflow: auto;
+}
+
+.command-palette-list li button {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 3px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--surface-raised) 95%, transparent), var(--surface-strong));
+}
+
+.command-palette-list li button strong {
+  font-size: 0.93rem;
+}
+
+.command-palette-list li button span {
+  color: var(--text-soft);
+  font-size: 0.83rem;
+}
+
 @media (max-width: 1100px) {
   .hero {
     grid-template-columns: 1fr;
@@ -829,5 +900,14 @@ th {
 
   .file-editor-toolbar {
     align-items: stretch;
+  }
+
+  .command-palette-backdrop {
+    padding-top: 20px;
+  }
+
+  .command-palette {
+    width: 100%;
+    border-radius: 12px;
   }
 }

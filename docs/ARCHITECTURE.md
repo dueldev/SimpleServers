@@ -105,6 +105,13 @@ SimpleServers is a local-first control plane split into API, web UI, and desktop
 - Advisor endpoint (`/servers/:id/performance/advisor`) computes trends + recommendation hints for non-expert operators.
 - Trust endpoint (`/system/trust`) reports build provenance, signature state, verification links, and active security controls.
 
+11. Non-technical UX acceleration
+
+- Overview includes a `Next Best Action` state machine so first-time operators always get one clear next step.
+- Global command palette (`Ctrl/Cmd+K`) exposes goal-first actions across setup, lifecycle, recovery, and trust workflows.
+- Advanced file editor now surfaces per-file snapshot history + rollback to reduce config-edit regression risk.
+- Tunnel diagnostics include one-click recovery actions (`restart_tunnel`, `go_live_recovery`) for unresolved endpoint states.
+
 ## Provider Integrations
 
 - Mojang metadata for Vanilla version resolution.

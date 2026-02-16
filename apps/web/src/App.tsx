@@ -414,6 +414,21 @@ type DesktopBridgeInfo = {
   signatureStatus?: string;
 };
 
+type EditorFileSnapshot = {
+  id: string;
+  path: string;
+  reason: string;
+  createdAt: string;
+};
+
+type CommandPaletteAction = {
+  id: string;
+  label: string;
+  detail: string;
+  keywords: string[];
+  run: () => void;
+};
+
 function normalizeStatus(value: string | null | undefined): string {
   return (value ?? "unknown").toLowerCase();
 }
@@ -730,6 +745,10 @@ export default function App() {
   const [editorSearch, setEditorSearch] = useState("");
   const [loadingEditorFile, setLoadingEditorFile] = useState(false);
   const [savingEditorFile, setSavingEditorFile] = useState(false);
+  const [editorFileSnapshots, setEditorFileSnapshots] = useState<EditorFileSnapshot[]>([]);
+  const [loadingEditorSnapshots, setLoadingEditorSnapshots] = useState(false);
+  const [restoringEditorSnapshotId, setRestoringEditorSnapshotId] = useState<string | null>(null);
+  const [rollingBackEditorSnapshot, setRollingBackEditorSnapshot] = useState(false);
   const [deletingServerId, setDeletingServerId] = useState<string | null>(null);
   const [contentForm, setContentForm] = useState({
     provider: "modrinth" as "modrinth" | "curseforge",
@@ -761,6 +780,8 @@ export default function App() {
   const [bulkActionInFlight, setBulkActionInFlight] = useState<BulkServerAction | null>(null);
   const [performanceAdvisor, setPerformanceAdvisor] = useState<PerformanceAdvisorReport | null>(null);
   const [trustReport, setTrustReport] = useState<TrustReport | null>(null);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
 
   const api = useRef(new ApiClient(defaultApiBase, token));
   const desktopBridge = useMemo(() => readDesktopBridge(), []);
@@ -769,6 +790,7 @@ export default function App() {
   const logReconnectTimerRef = useRef<number | null>(null);
   const logStreamServerRef = useRef<string | null>(null);
   const manualLogDisconnectRef = useRef(false);
+  const commandPaletteInputRef = useRef<HTMLInputElement | null>(null);
   const telemetrySessionIdRef = useRef(
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
@@ -1006,6 +1028,7 @@ export default function App() {
         setQuickHostingDiagnostics(null);
         setPerformanceAdvisor(null);
         setEditorFiles([]);
+        setEditorFileSnapshots([]);
         setFilePath("server.properties");
         setFileContent("");
         setFileOriginal("");
@@ -1230,6 +1253,7 @@ export default function App() {
       setServerPropertiesForm(defaultServerProperties);
       setServerPropertiesIssues([]);
       setServerPropertySnapshots([]);
+      setEditorFileSnapshots([]);
       return;
     }
 
@@ -1300,6 +1324,47 @@ export default function App() {
     media.addEventListener("change", listener);
     return () => media.removeEventListener("change", listener);
   }, [themePreference]);
+
+  useEffect(() => {
+    if (!commandPaletteOpen) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      commandPaletteInputRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [commandPaletteOpen]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null;
+      const typingTarget =
+        target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable);
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandPaletteOpen((previous) => !previous);
+        return;
+      }
+
+      if (event.key === "/" && !typingTarget && !commandPaletteOpen) {
+        event.preventDefault();
+        setCommandPaletteOpen(true);
+        return;
+      }
+
+      if (event.key === "Escape" && commandPaletteOpen) {
+        event.preventDefault();
+        setCommandPaletteOpen(false);
+        setCommandPaletteQuery("");
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [commandPaletteOpen]);
 
   useEffect(() => {
     if (!selectedServerId || !quickHostingStatus?.publicAddress) {
@@ -1532,6 +1597,245 @@ export default function App() {
     }
     return tips;
   }, [quickHostPending, selectedServerStatus, preflight, createServer.allowCracked, quickHostingDiagnostics?.diagnostics?.message]);
+
+  const nextBestAction = useMemo(() => {
+    if (servers.length === 0) {
+      return {
+        id: "create" as const,
+        title: "Create your first server",
+        detail: "Use Instant Launch to create + start + configure quick hosting in one guided step.",
+        cta: "Instant Launch",
+        tone: "tone-warn" as const
+      };
+    }
+
+    if (!selectedServerId) {
+      return {
+        id: "select" as const,
+        title: "Select an active server",
+        detail: "Pick a server from the Active Server selector to unlock targeted actions.",
+        cta: "Open Server Picker",
+        tone: "tone-warn" as const
+      };
+    }
+
+    if (!isServerRunning(selectedServerStatus)) {
+      return {
+        id: "start" as const,
+        title: "Start the selected server",
+        detail: "The runtime must be online before players can join.",
+        cta: "Start Server",
+        tone: "tone-warn" as const
+      };
+    }
+
+    if (!quickHostingStatus?.publicAddress) {
+      return {
+        id: "go_live" as const,
+        title: "Publish a shareable address",
+        detail: "Run Go Live to start quick hosting checks and resolve the public endpoint.",
+        cta: "Go Live",
+        tone: "tone-warn" as const
+      };
+    }
+
+    return {
+      id: "copy_address" as const,
+      title: "Share your public address",
+      detail: `Address is ready: ${quickHostingStatus.publicAddress}`,
+      cta: "Copy Address",
+      tone: "tone-ok" as const
+    };
+  }, [servers.length, selectedServerId, selectedServerStatus, quickHostingStatus?.publicAddress]);
+
+  function runNextBestAction(): void {
+    if (nextBestAction.id === "create") {
+      void quickStartNow();
+      return;
+    }
+    if (nextBestAction.id === "select") {
+      setActiveView("overview");
+      return;
+    }
+    if (nextBestAction.id === "start" && selectedServerId) {
+      void serverAction(selectedServerId, "start");
+      return;
+    }
+    if (nextBestAction.id === "go_live") {
+      void goLiveNow();
+      return;
+    }
+    if (nextBestAction.id === "copy_address" && quickHostingStatus?.publicAddress) {
+      copyAddress(quickHostingStatus.publicAddress);
+    }
+  }
+
+  const commandPaletteActions = useMemo<CommandPaletteAction[]>(() => {
+    const actions: CommandPaletteAction[] = [
+      {
+        id: "view-overview",
+        label: "Open Overview",
+        detail: "Command center and hosting journey.",
+        keywords: ["overview", "home", "dashboard"],
+        run: () => setActiveView("overview")
+      },
+      {
+        id: "view-setup",
+        label: "Open Setup",
+        detail: "Guided server creation and launch presets.",
+        keywords: ["setup", "create", "launch"],
+        run: () => setActiveView("setup")
+      },
+      {
+        id: "view-manage",
+        label: "Open Manage",
+        detail: "Crash doctor, backups, and config management.",
+        keywords: ["manage", "fix", "backup", "crash"],
+        run: () => setActiveView("manage")
+      },
+      {
+        id: "view-content",
+        label: "Open Content",
+        detail: "Install and update mods/plugins/modpacks.",
+        keywords: ["content", "mods", "plugins", "packages"],
+        run: () => setActiveView("content")
+      },
+      {
+        id: "view-trust",
+        label: "Open Trust Workspace",
+        detail: "Review build signature and security controls.",
+        keywords: ["trust", "security", "signature"],
+        run: () => setActiveView("trust")
+      },
+      {
+        id: "refresh-all",
+        label: "Refresh Everything",
+        detail: "Reload server, tunnel, and diagnostics state.",
+        keywords: ["refresh", "reload", "sync"],
+        run: () => {
+          void refreshAll();
+        }
+      }
+    ];
+
+    if (isAdvancedExperience) {
+      actions.push({
+        id: "view-advanced",
+        label: "Open Advanced",
+        detail: "Raw file editor, tunnel controls, and admin settings.",
+        keywords: ["advanced", "editor", "admin"],
+        run: () => setActiveView("advanced")
+      });
+    } else {
+      actions.push({
+        id: "switch-advanced",
+        label: "Switch to Advanced Mode",
+        detail: "Show expert controls and deeper tooling.",
+        keywords: ["advanced", "power", "expert"],
+        run: () => setExperienceMode("advanced")
+      });
+    }
+
+    if (!selectedServerId) {
+      actions.push({
+        id: "instant-launch",
+        label: "Instant Launch Server",
+        detail: "Create and start a server in one step.",
+        keywords: ["create", "server", "launch"],
+        run: () => {
+          void quickStartNow();
+        }
+      });
+      return actions;
+    }
+
+    actions.push(
+      {
+        id: "start-server",
+        label: "Start Selected Server",
+        detail: "Start Minecraft runtime for the active server.",
+        keywords: ["start", "server", "runtime"],
+        run: () => {
+          void serverAction(selectedServerId, "start");
+        }
+      },
+      {
+        id: "stop-server",
+        label: "Stop Selected Server",
+        detail: "Gracefully stop runtime and tunnels.",
+        keywords: ["stop", "server", "runtime"],
+        run: () => {
+          void serverAction(selectedServerId, "stop");
+        }
+      },
+      {
+        id: "restart-server",
+        label: "Restart Selected Server",
+        detail: "Restart runtime and reconnect tunnels.",
+        keywords: ["restart", "server", "runtime"],
+        run: () => {
+          void serverAction(selectedServerId, "restart");
+        }
+      },
+      {
+        id: "go-live-server",
+        label: "Go Live (Selected)",
+        detail: "Run start + quick-host diagnostics in one flow.",
+        keywords: ["go live", "publish", "public"],
+        run: () => {
+          void goLiveNow();
+        }
+      },
+      {
+        id: "backup-server",
+        label: "Create Backup (Selected)",
+        detail: "Create an on-demand safety snapshot.",
+        keywords: ["backup", "snapshot", "restore"],
+        run: () => {
+          void createBackup(selectedServerId);
+        }
+      },
+      {
+        id: "crash-doctor",
+        label: "Run Crash Doctor",
+        detail: "Apply guided recovery actions automatically.",
+        keywords: ["crash", "doctor", "repair", "fix"],
+        run: () => {
+          void runCrashDoctor();
+        }
+      }
+    );
+
+    if (quickHostingStatus?.publicAddress) {
+      actions.push({
+        id: "copy-public-address",
+        label: "Copy Public Address",
+        detail: quickHostingStatus.publicAddress,
+        keywords: ["copy", "public", "address", "share"],
+        run: () => copyAddress(quickHostingStatus.publicAddress ?? "")
+      });
+    }
+
+    return actions;
+  }, [
+    createBackup,
+    goLiveNow,
+    isAdvancedExperience,
+    quickHostingStatus?.publicAddress,
+    runCrashDoctor,
+    selectedServerId,
+    serverAction
+  ]);
+
+  const filteredCommandPaletteActions = useMemo(() => {
+    const query = commandPaletteQuery.trim().toLowerCase();
+    if (!query) {
+      return commandPaletteActions;
+    }
+    return commandPaletteActions.filter((action) =>
+      `${action.label} ${action.detail} ${action.keywords.join(" ")}`.toLowerCase().includes(query)
+    );
+  }, [commandPaletteActions, commandPaletteQuery]);
 
   const hasRepairablePreflightIssue = useMemo(() => {
     return Boolean(preflight?.issues.some((issue) => issue.code === "missing_eula" || issue.code === "missing_server_jar"));
@@ -1819,6 +2123,24 @@ export default function App() {
     }
   }
 
+  async function refreshEditorFileSnapshots(serverId: string, targetPath: string, limit = 12): Promise<void> {
+    try {
+      setLoadingEditorSnapshots(true);
+      const query = new URLSearchParams({
+        path: targetPath,
+        limit: String(limit)
+      });
+      const response = await api.current.get<{ path: string; snapshots: EditorFileSnapshot[] }>(
+        `/servers/${serverId}/editor/file/snapshots?${query.toString()}`
+      );
+      setEditorFileSnapshots(response.snapshots ?? []);
+    } catch {
+      setEditorFileSnapshots([]);
+    } finally {
+      setLoadingEditorSnapshots(false);
+    }
+  }
+
   async function loadEditorFile(serverId: string, targetPath: string): Promise<void> {
     try {
       setLoadingEditorFile(true);
@@ -1831,6 +2153,7 @@ export default function App() {
         setServerPropertiesRaw(response.content);
         setServerPropertiesForm(deriveServerPropertiesForm(response.content));
       }
+      await refreshEditorFileSnapshots(serverId, response.path);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -1904,6 +2227,7 @@ export default function App() {
       if (filePath === "server.properties") {
         await refreshServerPropertySnapshots(selectedServerId);
       }
+      await refreshEditorFileSnapshots(selectedServerId, filePath);
       setNotice(`Saved ${filePath}.`);
       setError(null);
     } catch (e) {
@@ -1911,6 +2235,68 @@ export default function App() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSavingEditorFile(false);
+    }
+  }
+
+  async function restoreEditorFileSnapshot(snapshot: EditorFileSnapshot): Promise<void> {
+    if (!selectedServerId) {
+      return;
+    }
+    const confirmed = window.confirm(`Restore ${snapshot.path} from ${new Date(snapshot.createdAt).toLocaleString()}?`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setRestoringEditorSnapshotId(snapshot.id);
+      await api.current.post(`/servers/${selectedServerId}/editor/file/rollback`, {
+        path: snapshot.path,
+        snapshotId: snapshot.id
+      });
+      await loadEditorFile(selectedServerId, snapshot.path);
+      await refreshEditorFileSnapshots(selectedServerId, snapshot.path);
+      if (snapshot.path === "server.properties") {
+        await loadServerPropertiesForm(selectedServerId);
+        await refreshServerPropertySnapshots(selectedServerId);
+      }
+      setNotice(`Restored ${snapshot.path} snapshot.`);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRestoringEditorSnapshotId(null);
+    }
+  }
+
+  async function rollbackLatestEditorSnapshot(): Promise<void> {
+    if (!selectedServerId) {
+      return;
+    }
+
+    const latest = editorFileSnapshots[0];
+    if (!latest) {
+      setNotice(`No snapshots found yet for ${filePath}.`);
+      return;
+    }
+
+    try {
+      setRollingBackEditorSnapshot(true);
+      await api.current.post(`/servers/${selectedServerId}/editor/file/rollback`, {
+        path: latest.path,
+        snapshotId: latest.id
+      });
+      await loadEditorFile(selectedServerId, latest.path);
+      await refreshEditorFileSnapshots(selectedServerId, latest.path);
+      if (latest.path === "server.properties") {
+        await loadServerPropertiesForm(selectedServerId);
+        await refreshServerPropertySnapshots(selectedServerId);
+      }
+      setNotice(`Rolled back ${latest.path} to the latest snapshot.`);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRollingBackEditorSnapshot(false);
     }
   }
 
@@ -2119,6 +2505,14 @@ export default function App() {
           "Run `playit` once to complete login, or set PLAYIT_SECRET / PLAYIT_SECRET_PATH so SimpleServers can sync your endpoint."
         );
         setNotice("Copied Playit auth steps to clipboard.");
+      } else if (fixId === "restart_tunnel") {
+        const tunnelId = quickHostingDiagnostics?.diagnostics?.tunnelId;
+        if (tunnelId) {
+          await api.current.post(`/tunnels/${tunnelId}/stop`);
+          await api.current.post(`/tunnels/${tunnelId}/start`);
+        }
+      } else if (fixId === "go_live_recovery") {
+        await api.current.post(`/servers/${selectedServerId}/go-live`, {});
       }
 
       await refreshServerOperations(selectedServerId);
@@ -2543,6 +2937,10 @@ export default function App() {
           <button type="button" onClick={() => void refreshAll()} disabled={!connected || busy}>
             {busy ? "Refreshing..." : "Refresh"}
           </button>
+          <button type="button" onClick={() => setCommandPaletteOpen(true)} disabled={!connected}>
+            Quick Actions
+          </button>
+          <span className="muted-note">Shortcut: Ctrl/Cmd + K</span>
         </div>
       </section>
 
@@ -2649,6 +3047,20 @@ export default function App() {
                   : "No public address yet. Use Go Live to start hosting + tunnel checks."
                 : "Create a server first to unlock Go Live."}
             </p>
+          </section>
+
+          <section className="panel next-action-card">
+            <h2>Next Best Action</h2>
+            <p className="muted-note">{nextBestAction.title}</p>
+            <p className="muted-note">{nextBestAction.detail}</p>
+            <div className="inline-actions">
+              <span className={`status-pill ${nextBestAction.tone}`}>
+                {nextBestAction.id === "copy_address" ? "Ready" : "Recommended"}
+              </span>
+              <button type="button" onClick={runNextBestAction} disabled={busy}>
+                {nextBestAction.cta}
+              </button>
+            </div>
           </section>
 
           <section className="goal-grid">
@@ -4378,6 +4790,53 @@ export default function App() {
                     ))
                   )}
                 </div>
+                <h3>File Snapshots</h3>
+                <p className="muted-note">
+                  Every save stores the previous file revision. Restore snapshots if a change breaks startup.
+                </p>
+                <div className="inline-actions">
+                  <button
+                    type="button"
+                    onClick={() => void refreshEditorFileSnapshots(selectedServerId, filePath)}
+                    disabled={loadingEditorSnapshots}
+                  >
+                    {loadingEditorSnapshots ? "Refreshing..." : "Refresh Snapshots"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void rollbackLatestEditorSnapshot()}
+                    disabled={rollingBackEditorSnapshot || editorFileSnapshots.length === 0}
+                  >
+                    {rollingBackEditorSnapshot ? "Rolling Back..." : "Rollback Latest Snapshot"}
+                  </button>
+                </div>
+                <ul className="list list-compact">
+                  {editorFileSnapshots.slice(0, 8).map((snapshot) => (
+                    <li key={snapshot.id}>
+                      <div>
+                        <strong>{new Date(snapshot.createdAt).toLocaleString()}</strong>
+                        <span>
+                          {snapshot.path} · {snapshot.reason === "before_rollback" ? "captured before rollback" : "captured before save"}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void restoreEditorFileSnapshot(snapshot)}
+                        disabled={restoringEditorSnapshotId === snapshot.id}
+                      >
+                        {restoringEditorSnapshotId === snapshot.id ? "Restoring..." : "Restore"}
+                      </button>
+                    </li>
+                  ))}
+                  {editorFileSnapshots.length === 0 ? (
+                    <li>
+                      <div>
+                        <strong>No snapshots yet</strong>
+                        <span>Save this file once to create rollback history.</span>
+                      </div>
+                    </li>
+                  ) : null}
+                </ul>
                 <div className="inline-actions">
                   <button
                     onClick={() => {
@@ -4638,6 +5097,63 @@ export default function App() {
             </div>
           </section>
         </>
+      ) : null}
+
+      {commandPaletteOpen ? (
+        <div
+          className="command-palette-backdrop"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setCommandPaletteOpen(false);
+              setCommandPaletteQuery("");
+            }
+          }}
+        >
+          <section className="command-palette" role="dialog" aria-modal="true" aria-label="Quick actions">
+            <div className="command-palette-header">
+              <h2>Quick Actions</h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setCommandPaletteOpen(false);
+                  setCommandPaletteQuery("");
+                }}
+              >
+                Close
+              </button>
+            </div>
+            <input
+              ref={commandPaletteInputRef}
+              value={commandPaletteQuery}
+              onChange={(event) => setCommandPaletteQuery(event.target.value)}
+              placeholder="Search actions, views, and recovery tools..."
+              aria-label="Search quick actions"
+            />
+            <ul className="command-palette-list">
+              {filteredCommandPaletteActions.map((action) => (
+                <li key={action.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCommandPaletteOpen(false);
+                      setCommandPaletteQuery("");
+                      action.run();
+                    }}
+                  >
+                    <strong>{action.label}</strong>
+                    <span>{action.detail}</span>
+                  </button>
+                </li>
+              ))}
+              {filteredCommandPaletteActions.length === 0 ? (
+                <li>
+                  <div className="muted-note">No actions matched your search.</div>
+                </li>
+              ) : null}
+            </ul>
+          </section>
+        </div>
       ) : null}
     </div>
   );
