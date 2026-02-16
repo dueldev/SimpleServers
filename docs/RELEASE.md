@@ -2,6 +2,8 @@
 
 SimpleServers ships desktop artifacts via Electron Builder and GitHub Actions.
 
+Canonical repository: `https://github.com/dueldev/SimpleServers`
+
 ## Workflows
 
 - CI: `.github/workflows/ci.yml`
@@ -30,6 +32,13 @@ npm run desktop:publish
 Output directory:
 
 - `release/desktop`
+
+Expected desktop artifacts per release:
+
+- Windows: `SimpleServers-Setup-<version>.exe`
+- macOS: `SimpleServers-<version>-arm64.dmg`, `SimpleServers-<version>-arm64-mac.zip`
+- Linux: `SimpleServers-<version>-x86_64.AppImage`, `SimpleServers-<version>-amd64.deb`
+- Updater metadata: `latest.yml`, `latest-mac.yml`, `latest-linux.yml`
 
 ## Signing and Notarization Secrets
 
@@ -63,3 +72,23 @@ Packaged apps will periodically check for updates and prompt for restart when a 
 3. Push tag `vX.Y.Z`.
 4. Confirm signed artifacts and updater metadata were uploaded.
 5. Install from artifact and validate update path from previous release.
+
+## Out-Of-Box Smoke Test (Required)
+
+After each tagged release, validate on at least one fresh machine/VM per OS:
+
+1. Install artifact and launch the app.
+2. Confirm startup UI appears within `45s`.
+3. Verify API health via local endpoint:
+   - `GET http://127.0.0.1:4010/health`
+4. Verify authenticated endpoint with owner token:
+   - `GET /me` with header `x-api-token`.
+5. Confirm logs exist and contain boot milestones:
+   - `desktop.log` includes `app ready`, `api ready; loading renderer`, `renderer loaded`.
+6. Create a server from Instant Launch and verify it starts.
+
+Default log paths:
+
+- macOS: `~/Library/Application Support/SimpleServers/desktop.log`
+- Windows: `%APPDATA%/SimpleServers/desktop.log`
+- Linux: `${XDG_CONFIG_HOME:-~/.config}/SimpleServers/desktop.log`

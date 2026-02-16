@@ -4,6 +4,11 @@ SimpleServers is an open-source, local-first Minecraft server hosting and admini
 
 It is designed as a stronger open alternative to closed desktop hosts: fast setup, safer operations, and richer owner tooling.
 
+Latest stable desktop release: `v0.1.7`
+
+- Releases: `https://github.com/dueldev/SimpleServers/releases`
+- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.1.7`
+
 ## Production Features
 
 - Local control plane with RBAC, audit trail, and persistent state.
@@ -82,6 +87,16 @@ npm run desktop:dist
 
 Artifacts are written to `release/desktop`.
 
+### Download prebuilt desktop app
+
+From the GitHub release page, install the artifact for your OS:
+
+- Windows: `SimpleServers-Setup-<version>.exe`
+- macOS (Apple Silicon): `SimpleServers-<version>-arm64.dmg`
+- Linux:
+  - `SimpleServers-<version>-x86_64.AppImage`
+  - `SimpleServers-<version>-amd64.deb`
+
 ### Publish desktop release artifacts (tag/release flow)
 
 ```bash
@@ -109,6 +124,24 @@ Set secure tokens for non-dev usage:
 export SIMPLESERVERS_ADMIN_TOKEN='replace-this'
 export SIMPLESERVERS_REMOTE_TOKEN='replace-this-too'
 ```
+
+## Desktop Startup Notes
+
+- On first launch, the desktop app boots an embedded API and then loads the UI.
+- A startup screen is shown while services initialize.
+- The app writes startup diagnostics to a desktop log for fast triage.
+
+Desktop log locations:
+
+- macOS: `~/Library/Application Support/SimpleServers/desktop.log`
+- Windows: `%APPDATA%/SimpleServers/desktop.log`
+- Linux: `${XDG_CONFIG_HOME:-~/.config}/SimpleServers/desktop.log`
+
+Embedded API log locations:
+
+- macOS: `~/Library/Application Support/SimpleServers/api.log`
+- Windows: `%APPDATA%/SimpleServers/api.log`
+- Linux: `${XDG_CONFIG_HOME:-~/.config}/SimpleServers/api.log`
 
 ## Configuration
 
