@@ -13,6 +13,7 @@ const __dirname = path.dirname(__filename);
 const DEFAULT_API_PORT = process.env.SIMPLESERVERS_PORT ?? "4010";
 const DEFAULT_API_HOST = process.env.SIMPLESERVERS_HOST ?? "127.0.0.1";
 const DEFAULT_API_BASE = `http://${DEFAULT_API_HOST}:${DEFAULT_API_PORT}`;
+const STARTUP_TIMEOUT_MS = 45_000;
 
 let mainWindow: BrowserWindow | null = null;
 let apiProcess: ChildProcessWithoutNullStreams | null = null;
@@ -24,7 +25,7 @@ function isDevMode(): boolean {
 
 function resolveApiEntry(): string {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, "api", "main.js");
+    return path.join(process.resourcesPath, "app.asar", "api", "main.js");
   }
 
   return path.resolve(__dirname, "../../api/dist/main.js");
@@ -32,13 +33,17 @@ function resolveApiEntry(): string {
 
 function resolveRendererIndex(): string {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, "web", "index.html");
+    return path.join(process.resourcesPath, "app.asar", "web", "index.html");
   }
 
   return path.resolve(__dirname, "../../web/dist/index.html");
 }
 
-async function waitForApiReady(baseUrl: string, timeoutMs = 20_000): Promise<void> {
+function escapeHtml(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+async function waitForApiReady(baseUrl: string, timeoutMs = STARTUP_TIMEOUT_MS): Promise<void> {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     try {
@@ -54,6 +59,82 @@ async function waitForApiReady(baseUrl: string, timeoutMs = 20_000): Promise<voi
   }
 
   throw new Error(`API did not become ready within ${timeoutMs}ms`);
+}
+
+async function loadBootScreen(title: string, detail: string): Promise<void> {
+  if (!mainWindow) {
+    return;
+  }
+
+  const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SimpleServers</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 20% 15%, rgba(91, 193, 120, 0.25), transparent 45%),
+          radial-gradient(circle at 80% 85%, rgba(45, 117, 255, 0.2), transparent 45%),
+          linear-gradient(165deg, #081019 0%, #0f1b2a 55%, #0a121c 100%);
+        color: #e7f3ff;
+        font-family: "Inter", "Segoe UI", Roboto, sans-serif;
+      }
+      main {
+        width: min(760px, calc(100vw - 64px));
+        border: 1px solid rgba(122, 182, 255, 0.28);
+        border-radius: 18px;
+        background: rgba(6, 14, 24, 0.76);
+        box-shadow: 0 24px 80px rgba(5, 10, 18, 0.55);
+        padding: 28px;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: clamp(26px, 2.8vw, 34px);
+        font-weight: 700;
+      }
+      p {
+        margin: 0;
+        color: #b5cbe5;
+        line-height: 1.6;
+        white-space: pre-wrap;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(170, 220, 193, 0.35);
+        border-top-color: #7be79e;
+        border-radius: 999px;
+        animation: spin 900ms linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="row">
+        <div class="spinner"></div>
+        <strong>SimpleServers</strong>
+      </div>
+      <h1>${escapeHtml(title)}</h1>
+      <p>${escapeHtml(detail)}</p>
+    </main>
+  </body>
+</html>`;
+
+  await mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 }
 
 function startEmbeddedApi(): void {
@@ -147,9 +228,6 @@ function configureAutoUpdates(): void {
 }
 
 async function createMainWindow(): Promise<void> {
-  const devMode = isDevMode();
-  const rendererDevUrl = process.env.VITE_DEV_SERVER_URL ?? "http://127.0.0.1:5174";
-
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -161,13 +239,30 @@ async function createMainWindow(): Promise<void> {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
-    }
+    },
+    backgroundColor: "#0b1420",
+    show: false
+  });
+
+  mainWindow.once("ready-to-show", () => {
+    mainWindow?.show();
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: "deny" };
   });
+
+  await loadBootScreen("Starting SimpleServers", "Preparing local server services and dashboard...");
+}
+
+async function loadMainRenderer(): Promise<void> {
+  if (!mainWindow) {
+    return;
+  }
+
+  const devMode = isDevMode();
+  const rendererDevUrl = process.env.VITE_DEV_SERVER_URL ?? "http://127.0.0.1:5174";
 
   if (devMode && rendererDevUrl) {
     await mainWindow.loadURL(rendererDevUrl);
@@ -176,6 +271,30 @@ async function createMainWindow(): Promise<void> {
   }
 
   await mainWindow.loadFile(resolveRendererIndex());
+}
+
+async function handleBootFailure(error: unknown): Promise<void> {
+  const detail = error instanceof Error ? `${error.message}` : String(error);
+  const logDir = app.getPath("userData");
+  const message = `SimpleServers could not finish startup.\n\n${detail}\n\nLogs: ${logDir}`;
+  await loadBootScreen("Startup failed", message);
+
+  const dialogOptions = {
+    type: "error" as const,
+    title: "SimpleServers Startup Failed",
+    message: "SimpleServers failed to start.",
+    detail: `${detail}\n\nCheck logs in:\n${logDir}`,
+    buttons: ["Open Logs Folder", "Close"],
+    defaultId: 0,
+    cancelId: 1
+  };
+  const response = mainWindow
+    ? await dialog.showMessageBox(mainWindow, dialogOptions)
+    : await dialog.showMessageBox(dialogOptions);
+
+  if (response.response === 0) {
+    await shell.openPath(logDir);
+  }
 }
 
 async function boot(): Promise<void> {
@@ -200,10 +319,15 @@ async function boot(): Promise<void> {
 
   await app.whenReady();
 
-  startEmbeddedApi();
-  configureAutoUpdates();
-  await waitForApiReady(DEFAULT_API_BASE);
   await createMainWindow();
+  try {
+    startEmbeddedApi();
+    configureAutoUpdates();
+    await waitForApiReady(DEFAULT_API_BASE);
+    await loadMainRenderer();
+  } catch (error) {
+    await handleBootFailure(error);
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

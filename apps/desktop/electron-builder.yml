@@ -16,8 +16,6 @@ publish:
 files:
   - dist/**
   - package.json
-
-extraResources:
   - from: ../api/dist
     to: api
     filter:
@@ -31,16 +29,19 @@ mac:
   category: public.app-category.developer-tools
   hardenedRuntime: false
   gatekeeperAssess: false
+  icon: assets/icons/icon.icns
   target:
     - dmg
     - zip
 
 win:
+  icon: assets/icons/icon.ico
   target:
     - nsis
 
 linux:
   maintainer: "SimpleServers contributors <charlesshaw3@users.noreply.github.com>"
+  icon: assets/icons
   executableName: simpleservers
   artifactName: SimpleServers-${version}-${arch}.${ext}
   target:
