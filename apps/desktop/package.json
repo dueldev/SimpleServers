@@ -1,6 +1,6 @@
 {
-  "name": "@simpleservers/desktop",
-  "version": "0.1.3",
+  "name": "simpleservers-desktop",
+  "version": "0.1.4",
   "private": true,
   "description": "SimpleServers desktop shell",
   "author": {

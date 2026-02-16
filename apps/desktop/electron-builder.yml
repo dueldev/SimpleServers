@@ -29,10 +29,8 @@ extraResources:
 
 mac:
   category: public.app-category.developer-tools
-  hardenedRuntime: true
+  hardenedRuntime: false
   gatekeeperAssess: false
-  entitlements: build/entitlements.mac.plist
-  entitlementsInherit: build/entitlements.mac.plist
   target:
     - dmg
     - zip
@@ -43,6 +41,8 @@ win:
 
 linux:
   maintainer: "SimpleServers contributors <charlesshaw3@users.noreply.github.com>"
+  executableName: simpleservers
+  artifactName: SimpleServers-${version}-${arch}.${ext}
   target:
     - AppImage
     - deb
