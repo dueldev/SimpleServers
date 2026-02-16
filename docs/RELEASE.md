@@ -2,7 +2,7 @@
 
 SimpleServers ships desktop artifacts via Electron Builder and GitHub Actions.
 
-Canonical repository: `https://github.com/dueldev/SimpleServers`
+Canonical repository: `https://github.com/charlesshaw3/SimpleServers`
 
 ## Workflows
 
@@ -95,5 +95,10 @@ Default log paths:
 
 ## Recent Release Notes
 
+- `v0.1.10`
+  - Reworked web dashboard IA into focused views (`Overview`, `Setup`, `Manage`, `Content`, `Advanced`).
+  - Added progressive disclosure with a Power mode toggle so first-time users are not overloaded by advanced controls.
+  - Added persistent active-server context and quick actions to reduce navigation friction.
+  - Updated e2e flow coverage for the new navigation model.
 - `v0.1.9`
   - Fixed packaged desktop renderer asset path resolution by using a relative web build base (`./`), preventing blank windows on macOS DMG installs.

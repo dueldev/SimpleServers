@@ -317,6 +317,7 @@ test("connects and renders dashboard sections", async ({ page }) => {
   await page.getByRole("button", { name: "Instant Launch (Recommended)" }).click();
   await expect.poll(() => quickStartCalled).toBe(true);
 
+  await page.getByRole("button", { name: "Content" }).click();
   await page.getByRole("button", { name: "Search" }).click();
   await expect(page.getByText("Sodium")).toBeVisible();
 

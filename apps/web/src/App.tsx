@@ -203,6 +203,8 @@ type HardwareProfile = {
   };
 };
 
+type AppView = "overview" | "setup" | "manage" | "content" | "advanced";
+
 function isHttpUrl(value: string): boolean {
   return value.startsWith("http://") || value.startsWith("https://");
 }
@@ -319,6 +321,8 @@ export default function App() {
     requireToken: true,
     allowedOriginsCsv: ""
   });
+  const [activeView, setActiveView] = useState<AppView>("overview");
+  const [powerMode, setPowerMode] = useState(false);
 
   const api = useRef(new ApiClient(defaultApiBase, token));
   const logSocketRef = useRef<WebSocket | null>(null);
@@ -434,7 +438,8 @@ export default function App() {
       setCatalog(catalogRes.catalog);
       setHardware(hardwareRes);
 
-      if (!selectedServerId && serversRes.servers.length > 0) {
+      const hasSelectedServer = selectedServerId ? serversRes.servers.some((server) => server.id === selectedServerId) : false;
+      if ((!selectedServerId || !hasSelectedServer) && serversRes.servers.length > 0) {
         setSelectedServerId(serversRes.servers[0].id);
       }
 
@@ -451,7 +456,7 @@ export default function App() {
         setTunnelForm((prev) => ({ ...prev, serverId: serversRes.servers[0].id, localPort: serversRes.servers[0].port }));
       }
 
-      const activeServerId = selectedServerId ?? serversRes.servers[0]?.id;
+      const activeServerId = hasSelectedServer ? selectedServerId : serversRes.servers[0]?.id;
       if (activeServerId) {
         await Promise.all([refreshPackages(activeServerId), refreshServerOperations(activeServerId)]);
       } else {
@@ -664,6 +669,14 @@ export default function App() {
       setCreateServer((prev) => ({ ...prev, mcVersion: first }));
     }
   }, [versionOptions]);
+
+  const selectedServer = useMemo(() => {
+    return servers.find((server) => server.id === selectedServerId) ?? null;
+  }, [servers, selectedServerId]);
+
+  const unresolvedAlerts = useMemo(() => {
+    return alerts.filter((entry) => !entry.resolvedAt);
+  }, [alerts]);
 
   function applyPreset(preset: "custom" | "survival" | "modded" | "minigame"): void {
     setCreateServer((previous) => {
@@ -1010,7 +1023,7 @@ export default function App() {
       <header className="hero">
         <div>
           <h1>SimpleServers</h1>
-          <p>Open-source Minecraft server hosting and administration, local-first and production-minded.</p>
+          <p>Host Minecraft servers without getting buried in infrastructure settings.</p>
         </div>
         <form
           className="auth-box"
@@ -1031,843 +1044,1052 @@ export default function App() {
         </form>
       </header>
 
+      <section className="panel control-strip">
+        <nav className="view-nav" aria-label="Workspace views">
+          <button className={activeView === "overview" ? "active" : ""} onClick={() => setActiveView("overview")} type="button">
+            Overview
+          </button>
+          <button className={activeView === "setup" ? "active" : ""} onClick={() => setActiveView("setup")} type="button">
+            Setup
+          </button>
+          <button className={activeView === "manage" ? "active" : ""} onClick={() => setActiveView("manage")} type="button">
+            Manage
+          </button>
+          <button className={activeView === "content" ? "active" : ""} onClick={() => setActiveView("content")} type="button">
+            Content
+          </button>
+          <button className={activeView === "advanced" ? "active" : ""} onClick={() => setActiveView("advanced")} type="button">
+            Advanced
+          </button>
+        </nav>
+        <div className="inline-actions">
+          <label className="toggle">
+            <input type="checkbox" checked={powerMode} onChange={(e) => setPowerMode(e.target.checked)} />
+            Power mode
+          </label>
+          <button type="button" onClick={() => void refreshAll()} disabled={!connected || busy}>
+            {busy ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
+      </section>
+
       {error ? <div className="error-banner">{error}</div> : null}
       {notice && !error ? <div className="notice-banner">{notice}</div> : null}
 
-      <section className="stats-grid">
-        <article>
-          <h3>Servers</h3>
-          <strong>{status?.servers.total ?? 0}</strong>
-          <span>{status?.servers.running ?? 0} running</span>
-        </article>
-        <article>
-          <h3>Alerts</h3>
-          <strong>{status?.alerts.open ?? 0}</strong>
-          <span>{status?.alerts.total ?? 0} total</span>
-        </article>
-        <article>
-          <h3>Crashes</h3>
-          <strong>{status?.servers.crashed ?? 0}</strong>
-          <span>need owner attention</span>
-        </article>
-      </section>
-
-      <section className="panel">
-        <h2>Create Server</h2>
-        <div className="inline-actions">
-          <button onClick={() => void quickStartNow()} disabled={busy}>
-            {busy ? "Working..." : "Instant Launch (Recommended)"}
-          </button>
-        </div>
-        <p className="muted-note">
-          Instant Launch creates a server from your selected preset, starts it, and enables quick public hosting automatically.
-        </p>
-        {hardware ? (
+      <section className="panel context-strip">
+        <div>
+          <h2>Active Server</h2>
           <p className="muted-note">
-            Host profile: {hardware.cpuCores} cores, {Math.floor(hardware.totalMemoryMb / 1024)} GB RAM, recommended quick-start memory{" "}
-            {hardware.recommendations.quickStartMinMemoryMb}-{hardware.recommendations.quickStartMaxMemoryMb} MB.
+            {selectedServer
+              ? `${selectedServer.name} (${selectedServer.type} ${selectedServer.mcVersion})`
+              : "No server selected yet. Create one from Setup or use Instant Launch."}
           </p>
-        ) : null}
-        <form className="grid-form" onSubmit={(event) => void createServerSubmit(event)}>
-          <label>
-            Name
-            <input value={createServer.name} onChange={(e) => setCreateServer((prev) => ({ ...prev, name: e.target.value }))} />
-          </label>
-          <label>
-            Preset
-            <select
-              value={createServer.preset}
-              onChange={(e) => applyPreset(e.target.value as "custom" | "survival" | "modded" | "minigame")}
-            >
-              <option value="custom">Custom</option>
-              <option value="survival">Survival Starter</option>
-              <option value="modded">Modded Fabric</option>
-              <option value="minigame">Minigame Performance</option>
-            </select>
-          </label>
-          <label>
-            Type
-            <select
-              value={createServer.type}
-              onChange={(e) =>
-                setCreateServer((prev) => ({
-                  ...prev,
-                  type: e.target.value as "vanilla" | "paper" | "fabric"
-                }))
-              }
-            >
-              <option value="vanilla">Vanilla</option>
-              <option value="paper">Paper</option>
-              <option value="fabric">Fabric</option>
-            </select>
-          </label>
-          <label>
-            Minecraft Version
-            <select
-              value={createServer.mcVersion}
-              onChange={(e) => setCreateServer((prev) => ({ ...prev, mcVersion: e.target.value }))}
-            >
-              {versionOptions.map((id) => (
-                <option key={id} value={id}>
-                  {id}
+        </div>
+        <div className="inline-actions">
+          <label className="compact-field">
+            Server
+            <select value={selectedServerId ?? ""} onChange={(e) => setSelectedServerId(e.target.value || null)} disabled={servers.length === 0}>
+              {servers.length === 0 ? <option value="">No servers yet</option> : null}
+              {servers.map((server) => (
+                <option key={server.id} value={server.id}>
+                  {server.name}
                 </option>
               ))}
             </select>
           </label>
-          <label>
-            Java Port
-            <input
-              type="number"
-              value={createServer.port}
-              onChange={(e) => setCreateServer((prev) => ({ ...prev, port: Number(e.target.value) }))}
-            />
-          </label>
-          <label>
-            Bedrock Port
-            <input
-              type="number"
-              value={createServer.bedrockPort}
-              onChange={(e) => setCreateServer((prev) => ({ ...prev, bedrockPort: Number(e.target.value) }))}
-            />
-          </label>
-          <label>
-            Min Memory (MB)
-            <input
-              type="number"
-              value={createServer.minMemoryMb}
-              onChange={(e) => setCreateServer((prev) => ({ ...prev, minMemoryMb: Number(e.target.value) }))}
-            />
-          </label>
-          <label>
-            Max Memory (MB)
-            <input
-              type="number"
-              value={createServer.maxMemoryMb}
-              onChange={(e) => setCreateServer((prev) => ({ ...prev, maxMemoryMb: Number(e.target.value) }))}
-            />
-          </label>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={createServer.allowCracked}
-              onChange={(e) => setCreateServer((prev) => ({ ...prev, allowCracked: e.target.checked }))}
-            />
-            Allow non-premium players
-          </label>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={createServer.enableGeyser}
-              onChange={(e) => setCreateServer((prev) => ({ ...prev, enableGeyser: e.target.checked }))}
-            />
-            Install Geyser for crossplay
-          </label>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={createServer.enableFloodgate}
-              onChange={(e) => setCreateServer((prev) => ({ ...prev, enableFloodgate: e.target.checked }))}
-            />
-            Install Floodgate bridge
-          </label>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={createServer.quickPublicHosting}
-              onChange={(e) => setCreateServer((prev) => ({ ...prev, quickPublicHosting: e.target.checked }))}
-            />
-            Auto-enable quick public hosting (no manual port forwarding)
-          </label>
-          <button type="submit" disabled={busy}>
-            {busy ? "Working..." : "Provision Server"}
-          </button>
-        </form>
+          {selectedServerId ? (
+            <>
+              <button type="button" onClick={() => void serverAction(selectedServerId, "start")}>
+                Start
+              </button>
+              <button type="button" onClick={() => void serverAction(selectedServerId, "stop")}>
+                Stop
+              </button>
+              <button type="button" onClick={() => void serverAction(selectedServerId, "restart")}>
+                Restart
+              </button>
+              <button type="button" onClick={() => void createBackup(selectedServerId)}>
+                Backup
+              </button>
+            </>
+          ) : null}
+        </div>
       </section>
 
-      <section className="panel">
-        <h2>Quick Hosting</h2>
-        {selectedServerId ? (
-          <>
-            <div className="inline-actions">
-              <button onClick={() => void enableQuickHosting()}>Enable Public Hosting</button>
-              {quickHostingStatus?.publicAddress ? (
-                <button onClick={() => copyAddress(quickHostingStatus.publicAddress ?? "")}>Copy Public Address</button>
+      {activeView === "overview" ? (
+        <>
+          <section className="stats-grid">
+            <article>
+              <h3>Servers</h3>
+              <strong>{status?.servers.total ?? 0}</strong>
+              <span>{status?.servers.running ?? 0} running</span>
+            </article>
+            <article>
+              <h3>Open Alerts</h3>
+              <strong>{status?.alerts.open ?? 0}</strong>
+              <span>{status?.alerts.total ?? 0} total</span>
+            </article>
+            <article>
+              <h3>Crashes</h3>
+              <strong>{status?.servers.crashed ?? 0}</strong>
+              <span>require attention</span>
+            </article>
+          </section>
+
+          <section className="dual-grid">
+            <article className="panel">
+              <h2>Fast Launch</h2>
+              <p className="muted-note">Best for first-time setup. This creates, starts, and publishes your server in one flow.</p>
+              <div className="inline-actions">
+                <button onClick={() => void quickStartNow()} disabled={busy} type="button">
+                  {busy ? "Working..." : "Instant Launch (Recommended)"}
+                </button>
+                <button type="button" onClick={() => setActiveView("setup")}>
+                  Open Guided Setup
+                </button>
+              </div>
+              {hardware ? (
+                <p className="muted-note">
+                  Host profile: {hardware.cpuCores} cores, {Math.floor(hardware.totalMemoryMb / 1024)} GB RAM, recommended quick-start memory{" "}
+                  {hardware.recommendations.quickStartMinMemoryMb}-{hardware.recommendations.quickStartMaxMemoryMb} MB.
+                </p>
               ) : null}
-              {quickHostingStatus?.server.localAddress ? (
-                <button onClick={() => copyAddress(quickHostingStatus.server.localAddress ?? "")}>Copy Local Address</button>
+              <div className="quick-host-status">
+                <p className="muted-note">
+                  Local: <code>{quickHostingStatus?.server.localAddress ?? "unknown"}</code>
+                </p>
+                <p className="muted-note">
+                  Public: <code>{quickHostingStatus?.publicAddress ?? "not enabled yet"}</code>
+                </p>
+                <div className="inline-actions">
+                  {selectedServerId ? (
+                    <button onClick={() => void enableQuickHosting()} type="button">
+                      Enable Public Hosting
+                    </button>
+                  ) : null}
+                  {quickHostingStatus?.publicAddress ? (
+                    <button onClick={() => copyAddress(quickHostingStatus.publicAddress ?? "")} type="button">
+                      Copy Public Address
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </article>
+
+            <article className="panel">
+              <h2>Action Queue</h2>
+              <ul className="list">
+                {(quickHostingStatus?.steps ?? []).length > 0 ? (
+                  (quickHostingStatus?.steps ?? []).map((step) => (
+                    <li key={step}>
+                      <div>
+                        <strong>Hosting</strong>
+                        <span>{step}</span>
+                      </div>
+                    </li>
+                  ))
+                ) : (
+                  <li>
+                    <div>
+                      <strong>No pending setup tasks</strong>
+                      <span>Everything required for hosting is complete.</span>
+                    </div>
+                  </li>
+                )}
+                {unresolvedAlerts.slice(0, 4).map((alert) => (
+                  <li key={alert.id}>
+                    <div>
+                      <strong>{alert.severity.toUpperCase()}</strong>
+                      <span>{alert.message}</span>
+                    </div>
+                    <button type="button" onClick={() => void resolveAlert(alert.id)}>
+                      Resolve
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </article>
+          </section>
+
+          <section className="panel">
+            <h2>Server Fleet</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Version</th>
+                  <th>Status</th>
+                  <th>Port</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {servers.map((server) => (
+                  <tr key={server.id} className={server.id === selectedServerId ? "selected" : ""}>
+                    <td>
+                      <button className="link-btn" onClick={() => setSelectedServerId(server.id)} type="button">
+                        {server.name}
+                      </button>
+                    </td>
+                    <td>{server.type}</td>
+                    <td>{server.mcVersion}</td>
+                    <td>{server.status}</td>
+                    <td>{server.port}</td>
+                    <td>
+                      <div className="inline-actions">
+                        <button onClick={() => void serverAction(server.id, "start")} type="button">
+                          Start
+                        </button>
+                        <button onClick={() => void serverAction(server.id, "stop")} type="button">
+                          Stop
+                        </button>
+                        <button onClick={() => void serverAction(server.id, "restart")} type="button">
+                          Restart
+                        </button>
+                        <button onClick={() => void createBackup(server.id)} type="button">
+                          Backup
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        </>
+      ) : null}
+
+      {activeView === "setup" ? (
+        <>
+          <section className="panel">
+            <h2>Guided Server Setup</h2>
+            <p className="muted-note">
+              Pick a preset and launch in seconds. Enable power mode when you want full control over ports and memory.
+            </p>
+            <div className="inline-actions">
+              <button onClick={() => void quickStartNow()} disabled={busy} type="button">
+                {busy ? "Working..." : "Instant Launch (Recommended)"}
+              </button>
+              {!powerMode ? (
+                <button onClick={() => setPowerMode(true)} type="button">
+                  Show Advanced Setup
+                </button>
               ) : null}
             </div>
-            <p className="muted-note">
-              Local: <code>{quickHostingStatus?.server.localAddress ?? "unknown"}</code>
-            </p>
-            <p className="muted-note">
-              Public: <code>{quickHostingStatus?.publicAddress ?? "not enabled yet"}</code>
-            </p>
+            <form className="grid-form" onSubmit={(event) => void createServerSubmit(event)}>
+              <label>
+                Name
+                <input value={createServer.name} onChange={(e) => setCreateServer((prev) => ({ ...prev, name: e.target.value }))} />
+              </label>
+              <label>
+                Preset
+                <select
+                  value={createServer.preset}
+                  onChange={(e) => applyPreset(e.target.value as "custom" | "survival" | "modded" | "minigame")}
+                >
+                  <option value="custom">Custom</option>
+                  <option value="survival">Survival Starter</option>
+                  <option value="modded">Modded Fabric</option>
+                  <option value="minigame">Minigame Performance</option>
+                </select>
+              </label>
+              <label>
+                Type
+                <select
+                  value={createServer.type}
+                  onChange={(e) =>
+                    setCreateServer((prev) => ({
+                      ...prev,
+                      type: e.target.value as "vanilla" | "paper" | "fabric"
+                    }))
+                  }
+                >
+                  <option value="vanilla">Vanilla</option>
+                  <option value="paper">Paper</option>
+                  <option value="fabric">Fabric</option>
+                </select>
+              </label>
+              <label>
+                Minecraft Version
+                <select
+                  value={createServer.mcVersion}
+                  onChange={(e) => setCreateServer((prev) => ({ ...prev, mcVersion: e.target.value }))}
+                >
+                  {versionOptions.map((id) => (
+                    <option key={id} value={id}>
+                      {id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={createServer.quickPublicHosting}
+                  onChange={(e) => setCreateServer((prev) => ({ ...prev, quickPublicHosting: e.target.checked }))}
+                />
+                Auto-enable quick public hosting
+              </label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={createServer.enableGeyser}
+                  onChange={(e) => setCreateServer((prev) => ({ ...prev, enableGeyser: e.target.checked }))}
+                />
+                Install Geyser for crossplay
+              </label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={createServer.enableFloodgate}
+                  onChange={(e) => setCreateServer((prev) => ({ ...prev, enableFloodgate: e.target.checked }))}
+                />
+                Install Floodgate bridge
+              </label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={createServer.allowCracked}
+                  onChange={(e) => setCreateServer((prev) => ({ ...prev, allowCracked: e.target.checked }))}
+                />
+                Allow non-premium players
+              </label>
+
+              {powerMode ? (
+                <>
+                  <label>
+                    Java Port
+                    <input
+                      type="number"
+                      value={createServer.port}
+                      onChange={(e) => setCreateServer((prev) => ({ ...prev, port: Number(e.target.value) }))}
+                    />
+                  </label>
+                  <label>
+                    Bedrock Port
+                    <input
+                      type="number"
+                      value={createServer.bedrockPort}
+                      onChange={(e) => setCreateServer((prev) => ({ ...prev, bedrockPort: Number(e.target.value) }))}
+                    />
+                  </label>
+                  <label>
+                    Min Memory (MB)
+                    <input
+                      type="number"
+                      value={createServer.minMemoryMb}
+                      onChange={(e) => setCreateServer((prev) => ({ ...prev, minMemoryMb: Number(e.target.value) }))}
+                    />
+                  </label>
+                  <label>
+                    Max Memory (MB)
+                    <input
+                      type="number"
+                      value={createServer.maxMemoryMb}
+                      onChange={(e) => setCreateServer((prev) => ({ ...prev, maxMemoryMb: Number(e.target.value) }))}
+                    />
+                  </label>
+                </>
+              ) : null}
+
+              <button type="submit" disabled={busy}>
+                {busy ? "Working..." : "Provision Server"}
+              </button>
+            </form>
+          </section>
+
+          <section className="panel">
+            <h2>Quick Hosting</h2>
+            {selectedServerId ? (
+              <>
+                <div className="inline-actions">
+                  <button onClick={() => void enableQuickHosting()} type="button">
+                    Enable Public Hosting
+                  </button>
+                  {quickHostingStatus?.publicAddress ? (
+                    <button onClick={() => copyAddress(quickHostingStatus.publicAddress ?? "")} type="button">
+                      Copy Public Address
+                    </button>
+                  ) : null}
+                  {quickHostingStatus?.server.localAddress ? (
+                    <button onClick={() => copyAddress(quickHostingStatus.server.localAddress ?? "")} type="button">
+                      Copy Local Address
+                    </button>
+                  ) : null}
+                </div>
+                <p className="muted-note">
+                  Local: <code>{quickHostingStatus?.server.localAddress ?? "unknown"}</code>
+                </p>
+                <p className="muted-note">
+                  Public: <code>{quickHostingStatus?.publicAddress ?? "not enabled yet"}</code>
+                </p>
+                <ul className="list">
+                  {(quickHostingStatus?.steps ?? ["Enable quick hosting to publish your server without router setup."]).map((step) => (
+                    <li key={step}>
+                      <div>
+                        <span>{step}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p>Select a server to enable one-click public hosting.</p>
+            )}
+          </section>
+        </>
+      ) : null}
+
+      {activeView === "manage" ? (
+        <>
+          <section className="dual-grid">
+            <article className="panel">
+              <h2>Console Logs</h2>
+              <div className="inline-actions">
+                <label className="toggle">
+                  <input type="checkbox" checked={liveConsole} onChange={(e) => setLiveConsole(e.target.checked)} />
+                  Live stream (WebSocket)
+                </label>
+                {selectedServerId ? (
+                  <button onClick={() => void refreshLogs(selectedServerId)} type="button">
+                    Refresh Snapshot
+                  </button>
+                ) : null}
+              </div>
+              <div className="log-box">
+                {logs.map((line, index) => (
+                  <div key={`${line.ts}-${index}`}>
+                    <span>{new Date(line.ts).toLocaleTimeString()}</span> {line.line}
+                  </div>
+                ))}
+              </div>
+              <h3>Preflight Diagnostics</h3>
+              <ul className="list">
+                {(preflight?.issues ?? []).length === 0 ? (
+                  <li>
+                    <div>
+                      <strong>No blocking issues</strong>
+                      <span>Server is ready to start.</span>
+                    </div>
+                  </li>
+                ) : (
+                  (preflight?.issues ?? []).map((issue) => (
+                    <li key={`${issue.code}-${issue.message}`}>
+                      <div>
+                        <strong>{issue.severity.toUpperCase()}</strong>
+                        <span>{issue.message}</span>
+                        <span>{issue.recommendation}</span>
+                      </div>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </article>
+
+            <article className="panel">
+              <h2>Backups and Retention</h2>
+              <div className="grid-form">
+                <label>
+                  Max Backups
+                  <input
+                    type="number"
+                    value={backupPolicy?.maxBackups ?? 20}
+                    onChange={(e) =>
+                      setBackupPolicy((previous) =>
+                        previous
+                          ? {
+                              ...previous,
+                              maxBackups: Number(e.target.value)
+                            }
+                          : previous
+                      )
+                    }
+                  />
+                </label>
+                <label>
+                  Max Age (days)
+                  <input
+                    type="number"
+                    value={backupPolicy?.maxAgeDays ?? 30}
+                    onChange={(e) =>
+                      setBackupPolicy((previous) =>
+                        previous
+                          ? {
+                              ...previous,
+                              maxAgeDays: Number(e.target.value)
+                            }
+                          : previous
+                      )
+                    }
+                  />
+                </label>
+                <label>
+                  Prune Cron
+                  <input
+                    value={backupPolicy?.pruneCron ?? "0 */6 * * *"}
+                    onChange={(e) =>
+                      setBackupPolicy((previous) =>
+                        previous
+                          ? {
+                              ...previous,
+                              pruneCron: e.target.value
+                            }
+                          : previous
+                      )
+                    }
+                  />
+                </label>
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(backupPolicy?.enabled)}
+                    onChange={(e) =>
+                      setBackupPolicy((previous) =>
+                        previous
+                          ? {
+                              ...previous,
+                              enabled: e.target.checked ? 1 : 0
+                            }
+                          : previous
+                      )
+                    }
+                  />
+                  Retention enabled
+                </label>
+                <button onClick={() => void saveBackupPolicy()} type="button">
+                  Save Policy
+                </button>
+                <button onClick={() => void pruneBackupsNow()} type="button">
+                  Prune Now
+                </button>
+              </div>
+              <ul className="list">
+                {backups.map((backup) => (
+                  <li key={backup.id}>
+                    <div>
+                      <strong>{new Date(backup.createdAt).toLocaleString()}</strong>
+                      <span>{(backup.sizeBytes / (1024 * 1024)).toFixed(1)} MB</span>
+                      <span>{backup.restoredAt ? `restored at ${new Date(backup.restoredAt).toLocaleString()}` : "not restored"}</span>
+                    </div>
+                    <button onClick={() => void restoreBackup(backup.id)} type="button">
+                      Restore
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </article>
+          </section>
+
+          <section className="dual-grid">
+            <article className="panel">
+              <h2>Automation</h2>
+              <form onSubmit={(event) => void createTaskSubmit(event)} className="grid-form">
+                <label>
+                  Server
+                  <select value={taskForm.serverId} onChange={(e) => setTaskForm((prev) => ({ ...prev, serverId: e.target.value }))}>
+                    {servers.map((server) => (
+                      <option key={server.id} value={server.id}>
+                        {server.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Name
+                  <input value={taskForm.name} onChange={(e) => setTaskForm((prev) => ({ ...prev, name: e.target.value }))} />
+                </label>
+                <label>
+                  Cron
+                  <input value={taskForm.cronExpr} onChange={(e) => setTaskForm((prev) => ({ ...prev, cronExpr: e.target.value }))} />
+                </label>
+                <label>
+                  Action
+                  <select
+                    value={taskForm.action}
+                    onChange={(e) =>
+                      setTaskForm((prev) => ({ ...prev, action: e.target.value as "restart" | "backup" | "command" }))
+                    }
+                  >
+                    <option value="backup">backup</option>
+                    <option value="restart">restart</option>
+                    <option value="command">command</option>
+                  </select>
+                </label>
+                {taskForm.action === "command" ? (
+                  <label>
+                    Command
+                    <input value={taskForm.command} onChange={(e) => setTaskForm((prev) => ({ ...prev, command: e.target.value }))} />
+                  </label>
+                ) : null}
+                <button type="submit">Create Task</button>
+              </form>
+              <ul className="list">
+                {tasks.map((task) => (
+                  <li key={task.id}>
+                    <div>
+                      <strong>{task.name}</strong>
+                      <span>
+                        {task.action} at <code>{task.cronExpr}</code>
+                      </span>
+                      <span>
+                        Last: {task.lastStatus ?? "n/a"} {task.lastRunAt ? `(${new Date(task.lastRunAt).toLocaleString()})` : ""}
+                      </span>
+                    </div>
+                    <button onClick={() => void toggleTask(task)} type="button">
+                      {task.enabled ? "Disable" : "Enable"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </article>
+
+            <article className="panel">
+              <h2>Crash Reports</h2>
+              <ul className="list">
+                {crashReports.length === 0 ? (
+                  <li>
+                    <div>
+                      <strong>No crash reports</strong>
+                      <span>Recent crash bundles will appear here.</span>
+                    </div>
+                  </li>
+                ) : (
+                  crashReports.map((report) => (
+                    <li key={report.id}>
+                      <div>
+                        <strong>{new Date(report.createdAt).toLocaleString()}</strong>
+                        <span>{report.reason}</span>
+                        <span>exit code: {String(report.exitCode)}</span>
+                      </div>
+                      <button onClick={() => void viewCrashReport(report.id)} type="button">
+                        View Bundle
+                      </button>
+                    </li>
+                  ))
+                )}
+              </ul>
+              <h3>Alerts</h3>
+              <ul className="list">
+                {alerts.map((alert) => (
+                  <li key={alert.id}>
+                    <div>
+                      <strong>{alert.severity.toUpperCase()}</strong>
+                      <span>{alert.kind}</span>
+                      <span>{alert.message}</span>
+                    </div>
+                    {alert.resolvedAt ? (
+                      <span className="resolved">resolved</span>
+                    ) : (
+                      <button onClick={() => void resolveAlert(alert.id)} type="button">
+                        Resolve
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </article>
+          </section>
+        </>
+      ) : null}
+
+      {activeView === "content" ? (
+        <section className="dual-grid">
+          <article className="panel">
+            <h2>Content Manager</h2>
+            <form
+              className="grid-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void searchContent();
+              }}
+            >
+              <label>
+                Server
+                <select value={selectedServerId ?? ""} onChange={(e) => setSelectedServerId(e.target.value || null)}>
+                  {servers.map((server) => (
+                    <option key={server.id} value={server.id}>
+                      {server.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Provider
+                <select
+                  value={contentForm.provider}
+                  onChange={(e) => setContentForm((prev) => ({ ...prev, provider: e.target.value as "modrinth" | "curseforge" }))}
+                >
+                  <option value="modrinth">Modrinth</option>
+                  <option value="curseforge">CurseForge</option>
+                </select>
+              </label>
+              <label>
+                Package Type
+                <select
+                  value={contentForm.kind}
+                  onChange={(e) =>
+                    setContentForm((prev) => ({
+                      ...prev,
+                      kind: e.target.value as "mod" | "plugin" | "modpack" | "resourcepack"
+                    }))
+                  }
+                >
+                  <option value="mod">mod</option>
+                  <option value="plugin">plugin</option>
+                  <option value="modpack">modpack</option>
+                  <option value="resourcepack">resourcepack</option>
+                </select>
+              </label>
+              <label>
+                Query
+                <input value={contentForm.query} onChange={(e) => setContentForm((prev) => ({ ...prev, query: e.target.value }))} />
+              </label>
+              <button type="submit">Search</button>
+            </form>
+
             <ul className="list">
-              {(quickHostingStatus?.steps ?? ["Enable quick hosting to publish your server without router setup."]).map((step) => (
-                <li key={step}>
+              {contentResults.map((result) => (
+                <li key={`${result.provider}-${result.projectId}`}>
                   <div>
-                    <span>{step}</span>
+                    <strong>{result.name}</strong>
+                    <span>{result.summary}</span>
+                    <span>
+                      {result.provider} / {result.kind} / {result.downloads.toLocaleString()} downloads
+                    </span>
+                    <span>{result.compatible ? "compatible" : "compatibility unknown"}</span>
+                  </div>
+                  <button onClick={() => void installPackage(result.provider, result.projectId, result.kind)} type="button">
+                    Install
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </article>
+
+          <article className="panel">
+            <h2>Installed Packages</h2>
+            <ul className="list">
+              {installedPackages.map((pkg) => {
+                const update = packageUpdates.find((entry) => entry.packageId === pkg.id);
+                return (
+                  <li key={pkg.id}>
+                    <div>
+                      <strong>
+                        {pkg.provider}:{pkg.projectId}
+                      </strong>
+                      <span>
+                        version {pkg.versionId} ({pkg.kind})
+                      </span>
+                      <span>
+                        update: {update?.available ? `available -> ${update.latestVersionId}` : "up-to-date"}
+                      </span>
+                    </div>
+                    <div className="inline-actions">
+                      <button disabled={!update?.available} onClick={() => void updatePackage(pkg.id)} type="button">
+                        Update
+                      </button>
+                      <button onClick={() => void uninstallPackage(pkg.id)} type="button">
+                        Remove
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </article>
+        </section>
+      ) : null}
+
+      {activeView === "advanced" ? (
+        <>
+          <section className="panel">
+            <h2>Advanced Workspace</h2>
+            <p className="muted-note">
+              Power mode keeps all expert tools available while the main experience stays clean for everyday hosting tasks.
+            </p>
+          </section>
+
+          <details className="panel advanced-panel" open={powerMode}>
+            <summary>File Editor</summary>
+            {selectedServerId ? (
+              <>
+                <div className="inline-actions">
+                  {[
+                    "server.properties",
+                    "ops.json",
+                    "whitelist.json",
+                    "banned-ips.json",
+                    "banned-players.json"
+                  ].map((name) => (
+                    <button key={name} onClick={() => void loadFile(selectedServerId, name)} type="button">
+                      {name}
+                    </button>
+                  ))}
+                </div>
+                <textarea value={fileContent} onChange={(e) => setFileContent(e.target.value)} rows={16} />
+                <h3>Config Diff Preview</h3>
+                <div className="diff-box">
+                  {computeDiff(fileOriginal, fileContent).length === 0 ? (
+                    <div>No pending changes</div>
+                  ) : (
+                    computeDiff(fileOriginal, fileContent).map((line, index) => (
+                      <div key={`${line}-${index}`} className={line.startsWith("+") ? "diff-add" : "diff-remove"}>
+                        {line}
+                      </div>
+                    ))
+                  )}
+                </div>
+                <button onClick={() => void saveFile()} type="button">
+                  Save {fileName}
+                </button>
+              </>
+            ) : (
+              <p>Select a server to edit config files.</p>
+            )}
+          </details>
+
+          <details className="panel advanced-panel">
+            <summary>Tunnels</summary>
+            <form onSubmit={(event) => void createTunnelSubmit(event)} className="grid-form">
+              <label>
+                Server
+                <select value={tunnelForm.serverId} onChange={(e) => setTunnelForm((prev) => ({ ...prev, serverId: e.target.value }))}>
+                  {servers.map((server) => (
+                    <option key={server.id} value={server.id}>
+                      {server.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Provider
+                <select
+                  value={tunnelForm.provider}
+                  onChange={(e) =>
+                    setTunnelForm((prev) => ({ ...prev, provider: e.target.value as "manual" | "playit" | "cloudflared" | "ngrok" }))
+                  }
+                >
+                  <option value="manual">manual</option>
+                  <option value="playit">playit</option>
+                  <option value="cloudflared">cloudflared</option>
+                  <option value="ngrok">ngrok</option>
+                </select>
+              </label>
+              <label>
+                Public Host
+                <input value={tunnelForm.publicHost} onChange={(e) => setTunnelForm((prev) => ({ ...prev, publicHost: e.target.value }))} />
+              </label>
+              <label>
+                Public Port
+                <input
+                  type="number"
+                  value={tunnelForm.publicPort}
+                  onChange={(e) => setTunnelForm((prev) => ({ ...prev, publicPort: Number(e.target.value) }))}
+                />
+              </label>
+              <label>
+                Local Port
+                <input
+                  type="number"
+                  value={tunnelForm.localPort}
+                  onChange={(e) => setTunnelForm((prev) => ({ ...prev, localPort: Number(e.target.value) }))}
+                />
+              </label>
+              {tunnelForm.provider !== "manual" ? (
+                <>
+                  <label>
+                    Command
+                    <input
+                      value={tunnelForm.playitCommand}
+                      onChange={(e) => setTunnelForm((prev) => ({ ...prev, playitCommand: e.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Args
+                    <input
+                      value={tunnelForm.playitArgs}
+                      onChange={(e) => setTunnelForm((prev) => ({ ...prev, playitArgs: e.target.value }))}
+                      placeholder="--secret my-secret"
+                    />
+                  </label>
+                </>
+              ) : null}
+              <button type="submit">Create Tunnel</button>
+            </form>
+            <ul className="list">
+              {tunnels.map((tunnel) => (
+                <li key={tunnel.id}>
+                  <div>
+                    <strong>
+                      {tunnel.publicHost}:{tunnel.publicPort}
+                    </strong>
+                    <span>
+                      {tunnel.provider} {tunnel.protocol} {" -> "} {tunnel.localPort}
+                    </span>
+                    <span>Status: {tunnel.status}</span>
+                  </div>
+                  <div className="inline-actions">
+                    <button onClick={() => void tunnelAction(tunnel.id, "start")} type="button">
+                      Start
+                    </button>
+                    <button onClick={() => void tunnelAction(tunnel.id, "stop")} type="button">
+                      Stop
+                    </button>
                   </div>
                 </li>
               ))}
             </ul>
-          </>
-        ) : (
-          <p>Select a server to enable one-click public hosting.</p>
-        )}
-      </section>
+          </details>
 
-      <section className="panel">
-        <h2>Server Fleet</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Type</th>
-              <th>Version</th>
-              <th>Status</th>
-              <th>Port</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {servers.map((server) => (
-              <tr key={server.id} className={server.id === selectedServerId ? "selected" : ""}>
-                <td>
-                  <button className="link-btn" onClick={() => setSelectedServerId(server.id)}>
-                    {server.name}
-                  </button>
-                </td>
-                <td>{server.type}</td>
-                <td>{server.mcVersion}</td>
-                <td>{server.status}</td>
-                <td>{server.port}</td>
-                <td>
-                  <div className="inline-actions">
-                    <button onClick={() => void serverAction(server.id, "start")}>Start</button>
-                    <button onClick={() => void serverAction(server.id, "stop")}>Stop</button>
-                    <button onClick={() => void serverAction(server.id, "restart")}>Restart</button>
-                    <button onClick={() => void createBackup(server.id)}>Backup</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      <section className="dual-grid">
-        <article className="panel">
-          <h2>Console Logs</h2>
-          <div className="inline-actions">
-            <label className="toggle">
-              <input type="checkbox" checked={liveConsole} onChange={(e) => setLiveConsole(e.target.checked)} />
-              Live stream (WebSocket)
-            </label>
-            {selectedServerId ? <button onClick={() => void refreshLogs(selectedServerId)}>Refresh Snapshot</button> : null}
-          </div>
-          <div className="log-box">
-            {logs.map((line, index) => (
-              <div key={`${line.ts}-${index}`}>
-                <span>{new Date(line.ts).toLocaleTimeString()}</span> {line.line}
-              </div>
-            ))}
-          </div>
-          <h3>Preflight Diagnostics</h3>
-          <ul className="list">
-            {(preflight?.issues ?? []).length === 0 ? (
-              <li>
-                <div>
-                  <strong>no blocking issues</strong>
-                  <span>server is ready to start</span>
-                </div>
-              </li>
-            ) : (
-              (preflight?.issues ?? []).map((issue) => (
-                <li key={`${issue.code}-${issue.message}`}>
-                  <div>
-                    <strong>{issue.severity.toUpperCase()}</strong>
-                    <span>{issue.message}</span>
-                    <span>{issue.recommendation}</span>
-                  </div>
-                </li>
-              ))
-            )}
-          </ul>
-        </article>
-
-        <article className="panel">
-          <h2>File Editor</h2>
-          {selectedServerId ? (
-            <>
-              <div className="inline-actions">
-                {[
-                  "server.properties",
-                  "ops.json",
-                  "whitelist.json",
-                  "banned-ips.json",
-                  "banned-players.json"
-                ].map((name) => (
-                  <button key={name} onClick={() => void loadFile(selectedServerId, name)}>
-                    {name}
-                  </button>
-                ))}
-              </div>
-              <textarea value={fileContent} onChange={(e) => setFileContent(e.target.value)} rows={16} />
-              <h3>Config Diff Preview</h3>
-              <div className="diff-box">
-                {computeDiff(fileOriginal, fileContent).length === 0 ? (
-                  <div>No pending changes</div>
-                ) : (
-                  computeDiff(fileOriginal, fileContent).map((line, index) => (
-                    <div key={`${line}-${index}`} className={line.startsWith("+") ? "diff-add" : "diff-remove"}>
-                      {line}
-                    </div>
-                  ))
-                )}
-              </div>
-              <button onClick={() => void saveFile()}>Save {fileName}</button>
-            </>
-          ) : (
-            <p>Select a server to edit config files.</p>
-          )}
-        </article>
-      </section>
-
-      <section className="triple-grid">
-        <article className="panel">
-          <h2>Automation</h2>
-          <form onSubmit={(event) => void createTaskSubmit(event)} className="grid-form">
-            <label>
-              Server
-              <select value={taskForm.serverId} onChange={(e) => setTaskForm((prev) => ({ ...prev, serverId: e.target.value }))}>
-                {servers.map((server) => (
-                  <option key={server.id} value={server.id}>
-                    {server.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Name
-              <input value={taskForm.name} onChange={(e) => setTaskForm((prev) => ({ ...prev, name: e.target.value }))} />
-            </label>
-            <label>
-              Cron
-              <input value={taskForm.cronExpr} onChange={(e) => setTaskForm((prev) => ({ ...prev, cronExpr: e.target.value }))} />
-            </label>
-            <label>
-              Action
-              <select
-                value={taskForm.action}
-                onChange={(e) =>
-                  setTaskForm((prev) => ({ ...prev, action: e.target.value as "restart" | "backup" | "command" }))
-                }
+          <section className="dual-grid">
+            <article className="panel">
+              <h2>Users and Token Rotation</h2>
+              <form
+                className="grid-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void createUser();
+                }}
               >
-                <option value="backup">backup</option>
-                <option value="restart">restart</option>
-                <option value="command">command</option>
-              </select>
-            </label>
-            {taskForm.action === "command" ? (
-              <label>
-                Command
-                <input value={taskForm.command} onChange={(e) => setTaskForm((prev) => ({ ...prev, command: e.target.value }))} />
-              </label>
-            ) : null}
-            <button type="submit">Create Task</button>
-          </form>
-          <ul className="list">
-            {tasks.map((task) => (
-              <li key={task.id}>
-                <div>
-                  <strong>{task.name}</strong>
-                  <span>
-                    {task.action} at <code>{task.cronExpr}</code>
-                  </span>
-                  <span>
-                    Last: {task.lastStatus ?? "n/a"} {task.lastRunAt ? `(${new Date(task.lastRunAt).toLocaleString()})` : ""}
-                  </span>
-                </div>
-                <button onClick={() => void toggleTask(task)}>{task.enabled ? "Disable" : "Enable"}</button>
-              </li>
-            ))}
-          </ul>
-        </article>
-
-        <article className="panel">
-          <h2>Tunnels</h2>
-          <form onSubmit={(event) => void createTunnelSubmit(event)} className="grid-form">
-            <label>
-              Server
-              <select value={tunnelForm.serverId} onChange={(e) => setTunnelForm((prev) => ({ ...prev, serverId: e.target.value }))}>
-                {servers.map((server) => (
-                  <option key={server.id} value={server.id}>
-                    {server.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Provider
-              <select
-                value={tunnelForm.provider}
-                onChange={(e) =>
-                  setTunnelForm((prev) => ({ ...prev, provider: e.target.value as "manual" | "playit" | "cloudflared" | "ngrok" }))
-                }
-              >
-                <option value="manual">manual</option>
-                <option value="playit">playit</option>
-                <option value="cloudflared">cloudflared</option>
-                <option value="ngrok">ngrok</option>
-              </select>
-            </label>
-            <label>
-              Public Host
-              <input
-                value={tunnelForm.publicHost}
-                onChange={(e) => setTunnelForm((prev) => ({ ...prev, publicHost: e.target.value }))}
-              />
-            </label>
-            <label>
-              Public Port
-              <input
-                type="number"
-                value={tunnelForm.publicPort}
-                onChange={(e) => setTunnelForm((prev) => ({ ...prev, publicPort: Number(e.target.value) }))}
-              />
-            </label>
-            <label>
-              Local Port
-              <input
-                type="number"
-                value={tunnelForm.localPort}
-                onChange={(e) => setTunnelForm((prev) => ({ ...prev, localPort: Number(e.target.value) }))}
-              />
-            </label>
-            {tunnelForm.provider !== "manual" ? (
-              <>
                 <label>
-                  Command
-                  <input
-                    value={tunnelForm.playitCommand}
-                    onChange={(e) => setTunnelForm((prev) => ({ ...prev, playitCommand: e.target.value }))}
-                  />
+                  Username
+                  <input value={userForm.username} onChange={(e) => setUserForm((previous) => ({ ...previous, username: e.target.value }))} />
                 </label>
                 <label>
-                  Args
+                  Role
+                  <select
+                    value={userForm.role}
+                    onChange={(e) => setUserForm((previous) => ({ ...previous, role: e.target.value as UserRecord["role"] }))}
+                  >
+                    <option value="owner">owner</option>
+                    <option value="admin">admin</option>
+                    <option value="moderator">moderator</option>
+                    <option value="viewer">viewer</option>
+                  </select>
+                </label>
+                <label>
+                  API Token
+                  <input value={userForm.apiToken} onChange={(e) => setUserForm((previous) => ({ ...previous, apiToken: e.target.value }))} />
+                </label>
+                <button type="submit">Create User</button>
+              </form>
+
+              <form
+                className="grid-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void rotateToken();
+                }}
+              >
+                <label>
+                  Rotate User
+                  <select
+                    value={rotateTokenForm.userId}
+                    onChange={(e) => setRotateTokenForm((previous) => ({ ...previous, userId: e.target.value }))}
+                  >
+                    {users.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.username}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  New Token
                   <input
-                    value={tunnelForm.playitArgs}
-                    onChange={(e) => setTunnelForm((prev) => ({ ...prev, playitArgs: e.target.value }))}
-                    placeholder="--secret my-secret"
+                    value={rotateTokenForm.newToken}
+                    onChange={(e) => setRotateTokenForm((previous) => ({ ...previous, newToken: e.target.value }))}
                   />
                 </label>
-              </>
-            ) : null}
-            <button type="submit">Create Tunnel</button>
-          </form>
-          <ul className="list">
-            {tunnels.map((tunnel) => (
-              <li key={tunnel.id}>
-                <div>
-                  <strong>
-                    {tunnel.publicHost}:{tunnel.publicPort}
-                  </strong>
-                  <span>
-                    {tunnel.provider} {tunnel.protocol} {" -> "} {tunnel.localPort}
-                  </span>
-                  <span>Status: {tunnel.status}</span>
-                </div>
-                <div className="inline-actions">
-                  <button onClick={() => void tunnelAction(tunnel.id, "start")}>Start</button>
-                  <button onClick={() => void tunnelAction(tunnel.id, "stop")}>Stop</button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </article>
+                <button type="submit">Rotate Token</button>
+              </form>
 
-        <article className="panel">
-          <h2>Alerts</h2>
-          <ul className="list">
-            {alerts.map((alert) => (
-              <li key={alert.id}>
-                <div>
-                  <strong>{alert.severity.toUpperCase()}</strong>
-                  <span>{alert.kind}</span>
-                  <span>{alert.message}</span>
-                </div>
-                {alert.resolvedAt ? (
-                  <span className="resolved">resolved</span>
-                ) : (
-                  <button onClick={() => void resolveAlert(alert.id)}>Resolve</button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </article>
-      </section>
-
-      <section className="dual-grid">
-        <article className="panel">
-          <h2>Backups and Retention</h2>
-          <div className="grid-form">
-            <label>
-              Max Backups
-              <input
-                type="number"
-                value={backupPolicy?.maxBackups ?? 20}
-                onChange={(e) =>
-                  setBackupPolicy((previous) =>
-                    previous
-                      ? {
-                          ...previous,
-                          maxBackups: Number(e.target.value)
-                        }
-                      : previous
-                  )
-                }
-              />
-            </label>
-            <label>
-              Max Age (days)
-              <input
-                type="number"
-                value={backupPolicy?.maxAgeDays ?? 30}
-                onChange={(e) =>
-                  setBackupPolicy((previous) =>
-                    previous
-                      ? {
-                          ...previous,
-                          maxAgeDays: Number(e.target.value)
-                        }
-                      : previous
-                  )
-                }
-              />
-            </label>
-            <label>
-              Prune Cron
-              <input
-                value={backupPolicy?.pruneCron ?? "0 */6 * * *"}
-                onChange={(e) =>
-                  setBackupPolicy((previous) =>
-                    previous
-                      ? {
-                          ...previous,
-                          pruneCron: e.target.value
-                        }
-                      : previous
-                  )
-                }
-              />
-            </label>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={Boolean(backupPolicy?.enabled)}
-                onChange={(e) =>
-                  setBackupPolicy((previous) =>
-                    previous
-                      ? {
-                          ...previous,
-                          enabled: e.target.checked ? 1 : 0
-                        }
-                      : previous
-                  )
-                }
-              />
-              Retention enabled
-            </label>
-            <button onClick={() => void saveBackupPolicy()}>Save Policy</button>
-            <button onClick={() => void pruneBackupsNow()}>Prune Now</button>
-          </div>
-          <ul className="list">
-            {backups.map((backup) => (
-              <li key={backup.id}>
-                <div>
-                  <strong>{new Date(backup.createdAt).toLocaleString()}</strong>
-                  <span>{(backup.sizeBytes / (1024 * 1024)).toFixed(1)} MB</span>
-                  <span>{backup.restoredAt ? `restored at ${new Date(backup.restoredAt).toLocaleString()}` : "not restored"}</span>
-                </div>
-                <button onClick={() => void restoreBackup(backup.id)}>Restore</button>
-              </li>
-            ))}
-          </ul>
-        </article>
-
-        <article className="panel">
-          <h2>Crash Reports</h2>
-          <ul className="list">
-            {crashReports.length === 0 ? (
-              <li>
-                <div>
-                  <strong>No crash reports</strong>
-                  <span>Recent crash bundles will appear here.</span>
-                </div>
-              </li>
-            ) : (
-              crashReports.map((report) => (
-                <li key={report.id}>
-                  <div>
-                    <strong>{new Date(report.createdAt).toLocaleString()}</strong>
-                    <span>{report.reason}</span>
-                    <span>exit code: {String(report.exitCode)}</span>
-                  </div>
-                  <button onClick={() => void viewCrashReport(report.id)}>View Bundle</button>
-                </li>
-              ))
-            )}
-          </ul>
-        </article>
-      </section>
-
-      <section className="dual-grid">
-        <article className="panel">
-          <h2>Content Manager</h2>
-          <form
-            className="grid-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void searchContent();
-            }}
-          >
-            <label>
-              Server
-              <select value={selectedServerId ?? ""} onChange={(e) => setSelectedServerId(e.target.value)}>
-                {servers.map((server) => (
-                  <option key={server.id} value={server.id}>
-                    {server.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Provider
-              <select
-                value={contentForm.provider}
-                onChange={(e) => setContentForm((prev) => ({ ...prev, provider: e.target.value as "modrinth" | "curseforge" }))}
-              >
-                <option value="modrinth">Modrinth</option>
-                <option value="curseforge">CurseForge</option>
-              </select>
-            </label>
-            <label>
-              Package Type
-              <select
-                value={contentForm.kind}
-                onChange={(e) =>
-                  setContentForm((prev) => ({
-                    ...prev,
-                    kind: e.target.value as "mod" | "plugin" | "modpack" | "resourcepack"
-                  }))
-                }
-              >
-                <option value="mod">mod</option>
-                <option value="plugin">plugin</option>
-                <option value="modpack">modpack</option>
-                <option value="resourcepack">resourcepack</option>
-              </select>
-            </label>
-            <label>
-              Query
-              <input value={contentForm.query} onChange={(e) => setContentForm((prev) => ({ ...prev, query: e.target.value }))} />
-            </label>
-            <button type="submit">Search</button>
-          </form>
-
-          <ul className="list">
-            {contentResults.map((result) => (
-              <li key={`${result.provider}-${result.projectId}`}>
-                <div>
-                  <strong>{result.name}</strong>
-                  <span>{result.summary}</span>
-                  <span>
-                    {result.provider} / {result.kind} / {result.downloads.toLocaleString()} downloads
-                  </span>
-                  <span>{result.compatible ? "compatible" : "compatibility unknown"}</span>
-                </div>
-                <button onClick={() => void installPackage(result.provider, result.projectId, result.kind)}>Install</button>
-              </li>
-            ))}
-          </ul>
-        </article>
-
-        <article className="panel">
-          <h2>Installed Packages</h2>
-          <ul className="list">
-            {installedPackages.map((pkg) => {
-              const update = packageUpdates.find((entry) => entry.packageId === pkg.id);
-              return (
-                <li key={pkg.id}>
-                  <div>
-                    <strong>
-                      {pkg.provider}:{pkg.projectId}
-                    </strong>
-                    <span>
-                      version {pkg.versionId} ({pkg.kind})
-                    </span>
-                    <span>
-                      update: {update?.available ? `available -> ${update.latestVersionId}` : "up-to-date"}
-                    </span>
-                  </div>
-                  <div className="inline-actions">
-                    <button disabled={!update?.available} onClick={() => void updatePackage(pkg.id)}>
-                      Update
-                    </button>
-                    <button onClick={() => void uninstallPackage(pkg.id)}>Remove</button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </article>
-      </section>
-
-      <section className="dual-grid">
-        <article className="panel">
-          <h2>Users and Token Rotation</h2>
-          <form
-            className="grid-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void createUser();
-            }}
-          >
-            <label>
-              Username
-              <input value={userForm.username} onChange={(e) => setUserForm((previous) => ({ ...previous, username: e.target.value }))} />
-            </label>
-            <label>
-              Role
-              <select value={userForm.role} onChange={(e) => setUserForm((previous) => ({ ...previous, role: e.target.value as UserRecord["role"] }))}>
-                <option value="owner">owner</option>
-                <option value="admin">admin</option>
-                <option value="moderator">moderator</option>
-                <option value="viewer">viewer</option>
-              </select>
-            </label>
-            <label>
-              API Token
-              <input value={userForm.apiToken} onChange={(e) => setUserForm((previous) => ({ ...previous, apiToken: e.target.value }))} />
-            </label>
-            <button type="submit">Create User</button>
-          </form>
-
-          <form
-            className="grid-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void rotateToken();
-            }}
-          >
-            <label>
-              Rotate User
-              <select
-                value={rotateTokenForm.userId}
-                onChange={(e) => setRotateTokenForm((previous) => ({ ...previous, userId: e.target.value }))}
-              >
+              <ul className="list">
                 {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.username}
-                  </option>
+                  <li key={user.id}>
+                    <div>
+                      <strong>{user.username}</strong>
+                      <span>{user.role}</span>
+                      <span>created {new Date(user.createdAt).toLocaleString()}</span>
+                    </div>
+                  </li>
                 ))}
-              </select>
-            </label>
-            <label>
-              New Token
-              <input
-                value={rotateTokenForm.newToken}
-                onChange={(e) => setRotateTokenForm((previous) => ({ ...previous, newToken: e.target.value }))}
-              />
-            </label>
-            <button type="submit">Rotate Token</button>
-          </form>
+              </ul>
+            </article>
 
-          <ul className="list">
-            {users.map((user) => (
-              <li key={user.id}>
-                <div>
-                  <strong>{user.username}</strong>
-                  <span>{user.role}</span>
-                  <span>created {new Date(user.createdAt).toLocaleString()}</span>
+            <article className="panel">
+              <h2>Remote Control and Java Channels</h2>
+              <form
+                className="grid-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void saveRemoteConfig();
+                }}
+              >
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={remoteConfigForm.enabled}
+                    onChange={(e) => setRemoteConfigForm((previous) => ({ ...previous, enabled: e.target.checked }))}
+                  />
+                  Enable remote control mode
+                </label>
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={remoteConfigForm.requireToken}
+                    onChange={(e) => setRemoteConfigForm((previous) => ({ ...previous, requireToken: e.target.checked }))}
+                  />
+                  Require remote token
+                </label>
+                <label>
+                  Allowed Origins (CSV)
+                  <input
+                    value={remoteConfigForm.allowedOriginsCsv}
+                    onChange={(e) => setRemoteConfigForm((previous) => ({ ...previous, allowedOriginsCsv: e.target.value }))}
+                  />
+                </label>
+                <button type="submit">Save Remote Policy</button>
+              </form>
+
+              {remoteState ? (
+                <p className="muted-note">
+                  Remote status: {remoteState.enabled ? "enabled" : "disabled"}; token configured:{" "}
+                  {remoteState.configuredToken ? "yes" : "no"}
+                </p>
+              ) : null}
+
+              <ul className="list">
+                {javaChannels.map((channel) => (
+                  <li key={channel.major}>
+                    <div>
+                      <strong>Java {channel.major}</strong>
+                      <span>{channel.lts ? "LTS channel" : "non-LTS"}</span>
+                      <span>{channel.recommendedFor}</span>
+                    </div>
+                    <a href={channel.adoptiumApi} target="_blank" rel="noreferrer">
+                      Channel API
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </article>
+          </section>
+
+          <section className="panel">
+            <h2>Audit Trail</h2>
+            <div className="audit-list">
+              {audit.map((entry) => (
+                <div key={entry.id}>
+                  <strong>{entry.actor}</strong> {entry.action} <code>{entry.targetType}</code> <code>{entry.targetId}</code>
+                  <span>{new Date(entry.createdAt).toLocaleString()}</span>
                 </div>
-              </li>
-            ))}
-          </ul>
-        </article>
-
-        <article className="panel">
-          <h2>Remote Control and Java Channels</h2>
-          <form
-            className="grid-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void saveRemoteConfig();
-            }}
-          >
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={remoteConfigForm.enabled}
-                onChange={(e) => setRemoteConfigForm((previous) => ({ ...previous, enabled: e.target.checked }))}
-              />
-              Enable remote control mode
-            </label>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={remoteConfigForm.requireToken}
-                onChange={(e) => setRemoteConfigForm((previous) => ({ ...previous, requireToken: e.target.checked }))}
-              />
-              Require remote token
-            </label>
-            <label>
-              Allowed Origins (CSV)
-              <input
-                value={remoteConfigForm.allowedOriginsCsv}
-                onChange={(e) => setRemoteConfigForm((previous) => ({ ...previous, allowedOriginsCsv: e.target.value }))}
-              />
-            </label>
-            <button type="submit">Save Remote Policy</button>
-          </form>
-
-          {remoteState ? (
-            <p className="muted-note">
-              Remote status: {remoteState.enabled ? "enabled" : "disabled"}; token configured:{" "}
-              {remoteState.configuredToken ? "yes" : "no"}
-            </p>
-          ) : null}
-
-          <ul className="list">
-            {javaChannels.map((channel) => (
-              <li key={channel.major}>
-                <div>
-                  <strong>Java {channel.major}</strong>
-                  <span>{channel.lts ? "LTS channel" : "non-LTS"}</span>
-                  <span>{channel.recommendedFor}</span>
-                </div>
-                <a href={channel.adoptiumApi} target="_blank" rel="noreferrer">
-                  Channel API
-                </a>
-              </li>
-            ))}
-          </ul>
-        </article>
-      </section>
-
-      <section className="panel">
-        <h2>Audit Trail</h2>
-        <div className="audit-list">
-          {audit.map((entry) => (
-            <div key={entry.id}>
-              <strong>{entry.actor}</strong> {entry.action} <code>{entry.targetType}</code> <code>{entry.targetId}</code>
-              <span>{new Date(entry.createdAt).toLocaleString()}</span>
+              ))}
             </div>
-          ))}
-        </div>
-      </section>
+          </section>
+        </>
+      ) : null}
     </div>
   );
 }

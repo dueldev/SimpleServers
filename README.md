@@ -4,10 +4,10 @@ SimpleServers is an open-source, local-first Minecraft server hosting and admini
 
 It is designed as a stronger open alternative to closed desktop hosts: fast setup, safer operations, and richer owner tooling.
 
-Latest stable desktop release: `v0.1.9`
+Latest stable desktop release: `v0.1.10`
 
-- Releases: `https://github.com/dueldev/SimpleServers/releases`
-- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.1.9`
+- Releases: `https://github.com/charlesshaw3/SimpleServers/releases`
+- Current release: `https://github.com/charlesshaw3/SimpleServers/releases/tag/v0.1.10`
 
 ## Production Features
 
@@ -27,6 +27,8 @@ Latest stable desktop release: `v0.1.9`
 - One-click quick public hosting with no-router-setup flow (plus tunnel providers: `manual`, `playit`, `cloudflared`, `ngrok`).
   - `playit` dependency bootstraps automatically on Linux/Windows and via Homebrew on macOS when available.
 - One-click Instant Launch flow: create + provision + start + quick-host in a single action.
+- Simplified, progressive dashboard UX with focused views (`Overview`, `Setup`, `Manage`, `Content`, `Advanced`).
+- Power mode toggle to surface advanced controls only when needed.
 - Desktop app packaging with release update channels.
 
 ## Ship Status
@@ -130,7 +132,8 @@ export SIMPLESERVERS_REMOTE_TOKEN='replace-this-too'
 - On first launch, the desktop app boots an embedded API and then loads the UI.
 - A startup screen is shown while services initialize.
 - The app writes startup diagnostics to a desktop log for fast triage.
-- `v0.1.9` fixes a packaged desktop renderer path issue that could show a blank window on macOS when launched from the DMG install.
+- `v0.1.10` adds guided dashboard navigation and progressive disclosure for advanced controls while keeping all server tooling available.
+- `v0.1.9` fixed a packaged desktop renderer path issue that could show a blank window on macOS when launched from the DMG install.
 
 Desktop log locations:
 

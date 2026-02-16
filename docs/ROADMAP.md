@@ -33,6 +33,12 @@ All roadmap milestones through `v1.0.0` are implemented in this repository and v
 - Policy engine for risky setup guardrails.
 - CI matrix across macOS, Windows, and Linux.
 
+## Implemented in v0.1.10
+
+- Reworked dashboard information architecture into focused, task-first views.
+- Added progressive disclosure via Power mode for advanced operator tooling.
+- Added persistent active-server context and quick actions across views.
+
 ## Next Track (Post-1.0)
 
 - Provider-level dependency graph resolution for mod/plugin compatibility.
