@@ -46,6 +46,18 @@ const createServerSchema = z.object({
   preset: z.enum(["custom", "survival", "modded", "minigame"]).default("custom")
 });
 
+const quickStartSchema = z.object({
+  name: z.string().trim().min(2).max(40).regex(/^[a-zA-Z0-9-_ ]+$/).default("My Server"),
+  preset: z.enum(["custom", "survival", "modded", "minigame"]).default("survival"),
+  type: z.enum(["vanilla", "paper", "fabric"]).optional(),
+  mcVersion: z.string().min(3).optional(),
+  port: z.number().int().min(1024).max(65535).optional(),
+  bedrockPort: z.number().int().min(1024).max(65535).optional(),
+  startServer: z.boolean().default(true),
+  publicHosting: z.boolean().default(true),
+  allowCracked: z.boolean().default(false)
+});
+
 const commandSchema = z.object({
   command: z.string().min(1)
 });
@@ -168,6 +180,19 @@ function resolveUniqueServerRootPath(name: string): string {
     sequence += 1;
   }
   return path.join(config.serversDir, candidate);
+}
+
+function pickLatestVersionForType(
+  catalog: {
+    vanilla: Array<{ id: string; stable: boolean }>;
+    paper: Array<{ id: string; stable: boolean }>;
+    fabric: Array<{ id: string; stable: boolean }>;
+  },
+  type: "vanilla" | "paper" | "fabric"
+): string | null {
+  const entries = type === "paper" ? catalog.paper : type === "fabric" ? catalog.fabric : catalog.vanilla;
+  const stable = entries.find((entry) => entry.stable)?.id;
+  return stable ?? entries[0]?.id ?? null;
 }
 
 function validateEditableFile(fileName: string): string {
@@ -321,13 +346,9 @@ export async function registerApiRoutes(
     };
   });
 
-  app.get("/servers", { preHandler: [authenticate] }, async () => ({ servers: store.listServers() }));
-
-  app.post("/servers", { preHandler: [authenticate, requireRole("admin")] }, async (request, reply) => {
-    const payload = applyPreset(createServerSchema.parse(request.body));
-
+  const createAndProvisionServer = async (payload: z.infer<typeof createServerSchema>) => {
     if (payload.maxMemoryMb < payload.minMemoryMb) {
-      return reply.code(400).send({ error: "maxMemoryMb must be >= minMemoryMb" });
+      throw app.httpErrors.badRequest("maxMemoryMb must be >= minMemoryMb");
     }
 
     const policyFindings = deps.policy.evaluateServerCreatePolicy({
@@ -340,10 +361,7 @@ export async function registerApiRoutes(
 
     const blocking = policyFindings.find((finding) => finding.severity === "critical");
     if (blocking) {
-      return reply.code(400).send({
-        error: `Policy violation: ${blocking.message}`,
-        findings: policyFindings
-      });
+      throw app.httpErrors.badRequest(`Policy violation: ${blocking.message}`);
     }
 
     const javaRuntime = payload.javaPath
@@ -352,18 +370,12 @@ export async function registerApiRoutes(
 
     const requiredJava = deps.java.getRequiredJavaMajor(payload.mcVersion);
     if (!javaRuntime.version || javaRuntime.version < requiredJava) {
-      return reply
-        .code(400)
-        .send({ error: `Java ${requiredJava}+ required for Minecraft ${payload.mcVersion}. Found ${javaRuntime.version ?? "unknown"}` });
+      throw app.httpErrors.badRequest(
+        `Java ${requiredJava}+ required for Minecraft ${payload.mcVersion}. Found ${javaRuntime.version ?? "unknown"}`
+      );
     }
 
-    let serverRoot: string;
-    try {
-      serverRoot = resolveUniqueServerRootPath(payload.name);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return reply.code(400).send({ error: message });
-    }
+    const serverRoot = resolveUniqueServerRootPath(payload.name);
 
     const initialRecord = store.createServer({
       name: payload.name,
@@ -394,11 +406,132 @@ export async function registerApiRoutes(
       const message = error instanceof Error ? error.message : String(error);
       deps.alerts.createAlert(initialRecord.id, "critical", "provision_failed", message);
       store.deleteServer(initialRecord.id);
-      return reply.code(500).send({ error: `Failed to provision server: ${message}` });
+      throw app.httpErrors.internalServerError(`Failed to provision server: ${message}`);
     }
 
-    writeAudit(request.user!.username, "server.create", "server", initialRecord.id, payload);
-    return { server: store.getServerById(initialRecord.id), policyFindings };
+    const server = store.getServerById(initialRecord.id);
+    if (!server) {
+      throw app.httpErrors.internalServerError("Server was created but could not be reloaded from store");
+    }
+
+    return { server, policyFindings };
+  };
+
+  app.get("/servers", { preHandler: [authenticate] }, async () => ({ servers: store.listServers() }));
+
+  app.post("/servers", { preHandler: [authenticate, requireRole("admin")] }, async (request) => {
+    const payload = applyPreset(createServerSchema.parse(request.body));
+    const { server, policyFindings } = await createAndProvisionServer(payload);
+    writeAudit(request.user!.username, "server.create", "server", server.id, payload);
+    return { server, policyFindings };
+  });
+
+  app.post("/servers/quickstart", { preHandler: [authenticate, requireRole("admin")] }, async (request) => {
+    const parsedQuickStart = quickStartSchema.safeParse(request.body ?? {});
+    if (!parsedQuickStart.success) {
+      throw app.httpErrors.badRequest(parsedQuickStart.error.issues.map((issue) => issue.message).join("; "));
+    }
+    const payload = parsedQuickStart.data;
+    const type = payload.type ?? (payload.preset === "modded" ? "fabric" : "paper");
+    const catalog = await deps.versions.getSetupCatalog();
+    const resolvedVersion = payload.mcVersion ?? pickLatestVersionForType(catalog, type);
+    if (!resolvedVersion) {
+      throw app.httpErrors.internalServerError(`No compatible Minecraft versions available for ${type}`);
+    }
+
+    const createPayload = applyPreset(
+      createServerSchema.parse({
+        name: payload.name,
+        preset: payload.preset,
+        type,
+        mcVersion: resolvedVersion,
+        port: payload.port ?? 25565,
+        bedrockPort: payload.bedrockPort ?? 19132,
+        minMemoryMb: 1024,
+        maxMemoryMb: 4096,
+        allowCracked: payload.allowCracked,
+        enableGeyser: payload.preset !== "modded",
+        enableFloodgate: payload.preset !== "modded"
+      })
+    );
+
+    const { server, policyFindings } = await createAndProvisionServer(createPayload);
+
+    let blocked = false;
+    let started = false;
+    let preflight = null as ReturnType<PreflightService["run"]> | null;
+    let warning: string | null = null;
+
+    if (payload.startServer) {
+      preflight = deps.preflight.run(server);
+      const criticalIssue = preflight.issues.find((issue) => issue.severity === "critical");
+      if (criticalIssue) {
+        deps.alerts.createAlert(server.id, "critical", "preflight_block", criticalIssue.message);
+        blocked = true;
+      } else {
+        for (const issue of preflight.issues.filter((issue) => issue.severity === "warning")) {
+          deps.alerts.createAlert(server.id, "warning", "preflight_warning", issue.message);
+        }
+        try {
+          await deps.runtime.start(server);
+          started = true;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          deps.alerts.createAlert(server.id, "critical", "start_failed", message);
+          warning = `Server was created, but startup failed: ${message}`;
+        }
+      }
+    }
+
+    let quickHostingWarning: string | null = null;
+    let quickHostAddress: string | null = null;
+    if (payload.publicHosting) {
+      const tunnel = deps.tunnels.ensureQuickTunnel(server.id);
+      const readiness = deps.tunnels.getTunnelLaunchReadiness(tunnel);
+      quickHostingWarning = readiness.ok ? null : readiness.reason ?? "Tunnel dependency missing";
+
+      if (started) {
+        try {
+          await deps.tunnels.startTunnel(tunnel.id);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          quickHostingWarning = message;
+        }
+      }
+
+      const activeTunnel = deps.tunnels
+        .listTunnels(server.id)
+        .find((entry) => entry.provider === "playit" || entry.status === "active");
+      if (activeTunnel) {
+        quickHostAddress = `${activeTunnel.publicHost}:${String(activeTunnel.publicPort)}`;
+      }
+    }
+
+    writeAudit(request.user!.username, "server.quickstart", "server", server.id, {
+      preset: payload.preset,
+      type,
+      version: resolvedVersion,
+      publicHosting: payload.publicHosting,
+      startServer: payload.startServer,
+      started,
+      blocked,
+      warning,
+      quickHostingWarning
+    });
+
+    return {
+      server: store.getServerById(server.id),
+      policyFindings,
+      started,
+      blocked,
+      preflight,
+      warning,
+      quickHosting: {
+        enabled: payload.publicHosting,
+        publicAddress: quickHostAddress,
+        warning: quickHostingWarning
+      }
+    };
   });
 
   app.post("/servers/:id/start", { preHandler: [authenticate, requireRole("moderator")] }, async (request, reply) => {

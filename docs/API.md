@@ -33,6 +33,7 @@ Base URL: `http://127.0.0.1:4010`
 
 - `GET /servers`
 - `POST /servers` (`admin`)
+- `POST /servers/quickstart` (`admin`, one-call create + optional start + optional quick-host enable)
 - `POST /servers/:id/start` (`moderator`)
 - `POST /servers/:id/stop` (`moderator`)
 - `POST /servers/:id/restart` (`moderator`)
@@ -40,6 +41,14 @@ Base URL: `http://127.0.0.1:4010`
 - `GET /servers/:id/logs`
 - `GET /servers/:id/preflight`
 - `GET /servers/:id/log-stream` (websocket; auth via `Sec-WebSocket-Protocol: ss-token.<base64url-token>` or query `token`)
+
+`POST /servers/quickstart` defaults:
+- preset `survival`
+- type `paper` (or `fabric` for `modded` preset)
+- latest stable Minecraft version for selected type
+- port `25565`
+- `startServer=true`
+- `publicHosting=true`
 
 ## File Editing
 

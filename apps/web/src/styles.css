@@ -159,6 +159,14 @@ button:hover {
   padding: 10px 12px;
 }
 
+.notice-banner {
+  background: rgba(45, 212, 191, 0.16);
+  border: 1px solid rgba(45, 212, 191, 0.5);
+  color: #d7fffa;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

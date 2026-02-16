@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test("connects and renders dashboard sections", async ({ page }) => {
   let installCalled = false;
+  let quickStartCalled = false;
 
   await page.route("http://127.0.0.1:4010/**", async (route) => {
     const request = route.request();
@@ -55,6 +56,33 @@ test("connects and renders dashboard sections", async ({ page }) => {
             createdAt: new Date().toISOString()
           }
         ]
+      });
+      return;
+    }
+
+    if (pathname === "/servers/quickstart" && method === "POST") {
+      quickStartCalled = true;
+      await withJson(200, {
+        server: {
+          id: "srv_1",
+          name: "Test Server",
+          type: "paper",
+          mcVersion: "1.21.11",
+          port: 25565,
+          bedrockPort: null,
+          minMemoryMb: 2048,
+          maxMemoryMb: 4096,
+          status: "running",
+          createdAt: new Date().toISOString()
+        },
+        started: true,
+        blocked: false,
+        warning: null,
+        quickHosting: {
+          enabled: true,
+          publicAddress: "pending.playit.gg:25565",
+          warning: null
+        }
       });
       return;
     }
@@ -271,6 +299,8 @@ test("connects and renders dashboard sections", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Server Fleet" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Test Server" })).toBeVisible();
+  await page.getByRole("button", { name: "Instant Launch (Recommended)" }).click();
+  await expect.poll(() => quickStartCalled).toBe(true);
 
   await page.getByRole("button", { name: "Search" }).click();
   await expect(page.getByText("Sodium")).toBeVisible();

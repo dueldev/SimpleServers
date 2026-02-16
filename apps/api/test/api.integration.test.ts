@@ -297,6 +297,21 @@ describe("api integration", () => {
     expect(startTunnel.json().message).toContain("missing-tunnel-command");
   });
 
+  it("validates quickstart payload", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/servers/quickstart",
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {
+        name: "x"
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
   it("validates content search against server existence", async () => {
     const response = await app.inject({
       method: "GET",

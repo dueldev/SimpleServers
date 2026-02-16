@@ -61,6 +61,18 @@ type QuickHostingStatus = {
   steps: string[];
 };
 
+type QuickStartResult = {
+  server: Server;
+  started: boolean;
+  blocked: boolean;
+  warning: string | null;
+  quickHosting: {
+    enabled: boolean;
+    publicAddress: string | null;
+    warning: string | null;
+  };
+};
+
 type InstalledPackage = {
   id: string;
   serverId: string;
@@ -187,6 +199,7 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const [servers, setServers] = useState<Server[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -672,8 +685,54 @@ export default function App() {
         setSelectedServerId(createdServerId);
       }
       await refreshAll();
+      setNotice("Server provisioned successfully.");
       setError(null);
     } catch (e) {
+      setNotice(null);
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function quickStartNow(): Promise<void> {
+    setBusy(true);
+    try {
+      const response = await api.current.post<QuickStartResult>("/servers/quickstart", {
+        name: createServer.name,
+        preset: createServer.preset,
+        publicHosting: true,
+        startServer: true,
+        allowCracked: createServer.allowCracked
+      });
+      if (response.server?.id) {
+        setSelectedServerId(response.server.id);
+        await refreshServerOperations(response.server.id);
+      }
+      await refreshAll();
+
+      const notices: string[] = [];
+      if (response.started) {
+        notices.push("Quick start completed and server is running.");
+      } else if (response.blocked) {
+        notices.push("Server created, but startup was blocked by preflight checks.");
+      } else {
+        notices.push("Server created, but it is not running yet.");
+      }
+      if (response.quickHosting.publicAddress) {
+        notices.push(`Public address: ${response.quickHosting.publicAddress}`);
+      }
+      if (response.quickHosting.warning) {
+        notices.push(`Quick hosting: ${response.quickHosting.warning}`);
+      }
+      if (response.warning) {
+        notices.push(response.warning);
+      }
+
+      setNotice(notices.join(" "));
+      setError(null);
+    } catch (e) {
+      setNotice(null);
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
@@ -932,6 +991,7 @@ export default function App() {
       </header>
 
       {error ? <div className="error-banner">{error}</div> : null}
+      {notice && !error ? <div className="notice-banner">{notice}</div> : null}
 
       <section className="stats-grid">
         <article>
@@ -953,6 +1013,14 @@ export default function App() {
 
       <section className="panel">
         <h2>Create Server</h2>
+        <div className="inline-actions">
+          <button onClick={() => void quickStartNow()} disabled={busy}>
+            {busy ? "Working..." : "Instant Launch (Recommended)"}
+          </button>
+        </div>
+        <p className="muted-note">
+          Instant Launch creates a server from your selected preset, starts it, and enables quick public hosting automatically.
+        </p>
         <form className="grid-form" onSubmit={(event) => void createServerSubmit(event)}>
           <label>
             Name

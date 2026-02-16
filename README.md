@@ -20,6 +20,7 @@ It is designed as a stronger open alternative to closed desktop hosts: fast setu
 - Structured crash bundles for postmortem/debug workflows.
 - One-click quick public hosting with no-router-setup flow (plus tunnel providers: `manual`, `playit`, `cloudflared`, `ngrok`).
   - `playit` dependency bootstraps automatically on Linux/Windows and via Homebrew on macOS when available.
+- One-click Instant Launch flow: create + provision + start + quick-host in a single action.
 - Desktop app packaging with release update channels.
 
 ## Ship Status
