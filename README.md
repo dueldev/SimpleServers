@@ -4,10 +4,10 @@ SimpleServers is an open-source, local-first Minecraft server hosting and admini
 
 It is designed as a stronger open alternative to closed desktop hosts: fast setup, safer operations, and richer owner tooling.
 
-Latest stable desktop release: `v0.1.11`
+Latest stable desktop release: `v0.1.12`
 
 - Releases: `https://github.com/dueldev/SimpleServers/releases`
-- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.1.11`
+- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.1.12`
 
 ## Production Features
 
@@ -132,6 +132,7 @@ export SIMPLESERVERS_REMOTE_TOKEN='replace-this-too'
 - On first launch, the desktop app boots an embedded API and then loads the UI.
 - A startup screen is shown while services initialize.
 - The app writes startup diagnostics to a desktop log for fast triage.
+- `v0.1.12` hardens API JSON parsing for empty-body action calls, adds guided setup recipes, and adds runtime troubleshooting guidance.
 - `v0.1.11` fixes empty-body POST action failures and adds clearer live status/tunnel UX for easier server operations.
 - `v0.1.10` adds guided dashboard navigation and progressive disclosure for advanced controls while keeping all server tooling available.
 - `v0.1.9` fixed a packaged desktop renderer path issue that could show a blank window on macOS when launched from the DMG install.

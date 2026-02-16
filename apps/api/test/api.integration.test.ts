@@ -284,6 +284,36 @@ describe("api integration", () => {
     expect(status.json().publicAddress).toContain("pending.playit.gg");
   });
 
+  it("accepts empty JSON POST bodies for lifecycle actions", async () => {
+    const serverRoot = path.join(testDataDir, "servers", "empty-json-stop-server");
+    fs.mkdirSync(serverRoot, { recursive: true });
+    const server = store.createServer({
+      name: "empty-json-stop-server",
+      type: "paper",
+      mcVersion: "1.21.11",
+      jarPath: path.join(serverRoot, "server.jar"),
+      rootPath: serverRoot,
+      javaPath: "java",
+      port: 25594,
+      bedrockPort: null,
+      minMemoryMb: 1024,
+      maxMemoryMb: 2048
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/servers/${server.id}/stop`,
+      headers: {
+        "x-api-token": "test-owner-token",
+        "content-type": "application/json"
+      },
+      payload: ""
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ ok: true });
+  });
+
   it("returns conflict when starting a tunnel with missing explicit command", async () => {
     const serverRoot = path.join(testDataDir, "servers", "tunnel-start-conflict-server");
     fs.mkdirSync(serverRoot, { recursive: true });

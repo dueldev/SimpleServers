@@ -63,6 +63,24 @@ export async function createApiApp(options?: {
     }
   });
 
+  // Some clients send `content-type: application/json` with an empty POST body.
+  // Accept that shape as `{}` to avoid hard failures on no-body action endpoints.
+  app.removeContentTypeParser("application/json");
+  app.addContentTypeParser("application/json", { parseAs: "string" }, (request, body, done) => {
+    const rawBody = typeof body === "string" ? body : body.toString("utf8");
+    const raw = rawBody.trim();
+    if (!raw) {
+      done(null, {});
+      return;
+    }
+
+    try {
+      done(null, JSON.parse(raw));
+    } catch {
+      done(app.httpErrors.badRequest("Invalid JSON body"));
+    }
+  });
+
   const remoteControl = new RemoteControlService();
   const localhostOrigins = new Set(["http://127.0.0.1:5174", "http://localhost:5174", "http://127.0.0.1:4010", "http://localhost:4010"]);
   const localhostIps = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);

@@ -235,11 +235,14 @@ function canStopServer(status: string | null | undefined): boolean {
 
 function statusTone(status: string | null | undefined): "ok" | "warn" | "error" | "neutral" {
   const normalized = normalizeStatus(status);
-  if (normalized === "running") {
+  if (normalized === "running" || normalized === "active" || normalized === "ready" || normalized === "online") {
     return "ok";
   }
   if (normalized === "crashed" || normalized === "error" || normalized === "failed") {
     return "error";
+  }
+  if (normalized === "idle" || normalized === "pending" || normalized === "starting" || normalized === "stopping" || normalized === "provisioning") {
+    return "warn";
   }
   if (isServerTransitioning(normalized)) {
     return "warn";
@@ -741,6 +744,36 @@ export default function App() {
       (quickTunnelStatus === "starting" || quickTunnelStatus === "pending" || quickTunnelStatus === "idle")
   );
 
+  const troubleshootingTips = useMemo(() => {
+    const tips: string[] = [];
+    if (quickHostPending) {
+      tips.push("Tunnel is still provisioning. Keep the app open and refresh tunnel status if it takes more than a minute.");
+    }
+    if (selectedServerStatus === "crashed") {
+      tips.push("Server crashed. Open Crash Reports in Manage to inspect the latest failure bundle.");
+    }
+    const criticalPreflightIssue = preflight?.issues.find((issue) => issue.severity === "critical");
+    if (criticalPreflightIssue) {
+      tips.push(`Preflight block: ${criticalPreflightIssue.message}`);
+    }
+    if (createServer.allowCracked) {
+      tips.push("Non-premium mode is enabled. Use only with trusted players to avoid account spoofing risk.");
+    }
+    return tips;
+  }, [quickHostPending, selectedServerStatus, preflight, createServer.allowCracked]);
+
+  useEffect(() => {
+    if (!connected || !selectedServerId || !quickHostPending) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      void refreshServerOperations(selectedServerId);
+    }, 5000);
+
+    return () => clearInterval(timer);
+  }, [connected, selectedServerId, quickHostPending]);
+
   function applyPreset(preset: "custom" | "survival" | "modded" | "minigame"): void {
     setCreateServer((previous) => {
       if (preset === "survival") {
@@ -784,6 +817,36 @@ export default function App() {
         preset
       };
     });
+  }
+
+  function applySetupRecipe(recipe: "crossplay" | "modded" | "nonPremium"): void {
+    if (recipe === "crossplay") {
+      setCreateServer((previous) => ({
+        ...previous,
+        preset: "survival",
+        type: "paper",
+        enableGeyser: true,
+        enableFloodgate: true,
+        quickPublicHosting: true
+      }));
+      setNotice("Applied Crossplay recipe (Paper + Geyser + Floodgate + quick hosting).");
+      setError(null);
+      return;
+    }
+
+    if (recipe === "modded") {
+      applyPreset("modded");
+      setNotice("Applied Modded recipe (Fabric preset).");
+      setError(null);
+      return;
+    }
+
+    setCreateServer((previous) => ({
+      ...previous,
+      allowCracked: true
+    }));
+    setNotice("Applied Non-premium recipe (online-mode disabled equivalent). Use only with trusted players.");
+    setError(null);
   }
 
   async function createServerSubmit(event: FormEvent): Promise<void> {
@@ -1390,6 +1453,21 @@ export default function App() {
                 </button>
               ) : null}
             </div>
+            <div className="setup-recipes">
+              <h3>Popular Recipes</h3>
+              <p className="muted-note">Based on common Squid-style flows: quick start, crossplay, modded, and optional non-premium access.</p>
+              <div className="inline-actions">
+                <button type="button" onClick={() => applySetupRecipe("crossplay")}>
+                  Apply Crossplay Recipe
+                </button>
+                <button type="button" onClick={() => applySetupRecipe("modded")}>
+                  Apply Modded Recipe
+                </button>
+                <button type="button" onClick={() => applySetupRecipe("nonPremium")}>
+                  Apply Non-premium Recipe
+                </button>
+              </div>
+            </div>
             <form className="grid-form" onSubmit={(event) => void createServerSubmit(event)}>
               <label>
                 Name
@@ -1570,6 +1648,24 @@ export default function App() {
 
       {activeView === "manage" ? (
         <>
+          <section className="panel">
+            <h2>Troubleshooting</h2>
+            <p className="muted-note">Guidance based on current server health, tunnel status, and common setup mistakes.</p>
+            <ul className="tip-list">
+              {troubleshootingTips.length > 0 ? troubleshootingTips.map((tip) => <li key={tip}>{tip}</li>) : <li>No active issues detected.</li>}
+            </ul>
+            <div className="inline-actions">
+              <button type="button" onClick={() => setActiveView("setup")}>
+                Open Setup
+              </button>
+              {selectedServerId ? (
+                <button type="button" onClick={() => void refreshServerOperations(selectedServerId)}>
+                  Refresh Server Diagnostics
+                </button>
+              ) : null}
+            </div>
+          </section>
+
           <section className="dual-grid">
             <article className="panel">
               <h2>Console Logs</h2>

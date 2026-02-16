@@ -175,6 +175,19 @@ a {
   gap: 6px;
 }
 
+.setup-recipes {
+  margin-top: 12px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: #f6faf6;
+}
+
+.setup-recipes h3 {
+  margin: 0 0 6px;
+}
+
 .grid-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -404,6 +417,7 @@ th {
   gap: 5px;
   color: var(--muted);
   font-size: 0.9rem;
+  line-height: 1.4;
 }
 
 .empty-table-note {

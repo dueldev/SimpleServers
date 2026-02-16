@@ -617,6 +617,11 @@ export async function registerApiRoutes(
 
   app.post("/servers/:id/stop", { preHandler: [authenticate, requireRole("moderator")] }, async (request) => {
     const { id } = request.params as { id: string };
+    const server = store.getServerById(id);
+    if (!server) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+
     await deps.tunnels.stopTunnelsForServer(id);
     await deps.runtime.stop(id);
     writeAudit(request.user!.username, "server.stop", "server", id);

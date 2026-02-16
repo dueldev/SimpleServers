@@ -45,6 +45,14 @@ All roadmap milestones through `v1.0.0` are implemented in this repository and v
 - Added stronger lifecycle/tunnel status visibility and guardrails in the dashboard UX.
 - Added research-backed SquidServers parity notes and implementation mapping.
 
+## Implemented in v0.1.12
+
+- Hardened API JSON parsing to accept empty-body JSON lifecycle action calls safely.
+- Added explicit stop-action validation for missing servers.
+- Added recipe-driven setup shortcuts for crossplay, modded, and non-premium flows.
+- Added tunnel pending auto-refresh and contextual troubleshooting guidance in Manage.
+- Expanded SquidServers parity research coverage for onboarding/install and common-flow support.
+
 ## Next Track (Post-1.0)
 
 - Provider-level dependency graph resolution for mod/plugin compatibility.

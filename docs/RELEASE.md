@@ -95,6 +95,12 @@ Default log paths:
 
 ## Recent Release Notes
 
+- `v0.1.12`
+  - Hardened API JSON parsing so empty-body JSON lifecycle actions are accepted safely instead of failing before route handlers.
+  - Added server existence validation on stop actions.
+  - Added guided setup recipes for crossplay/modded/non-premium workflows.
+  - Added auto-refresh of tunnel status while pending and a dedicated troubleshooting panel in the Manage workspace.
+  - Expanded SquidServers parity mapping with onboarding/install and common-flow research.
 - `v0.1.11`
   - Fixed dashboard POST behavior for bodyless actions (for example `Stop`) by omitting `content-type: application/json` when no request body is sent.
   - Added clearer status visibility and action guardrails (connection state, server status badges, disabled invalid lifecycle actions).

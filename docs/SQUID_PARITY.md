@@ -6,6 +6,11 @@ This document tracks public-product research for SquidServers and how SimpleServ
 
 - SquidServers website: https://squidservers.com
 - SquidServers support docs index: https://github.com/SquidServers/gitbook
+- SquidServers website metadata/positioning (`No port forwarding required`): https://squidservers.com
+- SquidServers download guide: https://github.com/SquidServers/gitbook/blob/main/get-started/download/README.md
+- SquidServers platform install guides:
+  - https://github.com/SquidServers/gitbook/blob/main/get-started/download/downloading-on-windows.md
+  - https://github.com/SquidServers/gitbook/blob/main/get-started/download/downloading-on-mac.md
 - SquidServers crossplay tutorial: https://github.com/SquidServers/gitbook/blob/main/tutorials/creating-a-crossplay-server-geysermc-server.md
 - SquidServers non-premium tutorial: https://github.com/SquidServers/gitbook/blob/main/tutorials/allow-non-premium-users-to-join.md
 - SquidServers Java compatibility troubleshooting: https://github.com/SquidServers/gitbook/blob/main/common-errors/incompatible-java-version.md
@@ -19,8 +24,10 @@ This document tracks public-product research for SquidServers and how SimpleServ
 - Error handling is practical and plain-language, with next actions.
 - Java/version compatibility is made explicit during setup and troubleshooting.
 - Users are kept aware of connection/server state through simple status language.
+- Onboarding content prioritizes common recipes (crossplay, non-premium, modded) over raw low-level settings.
+- Packaging and install friction is documented up front with platform-specific troubleshooting.
 
-## Implemented in SimpleServers (v0.1.11)
+## Implemented in SimpleServers (v0.1.12)
 
 - Fixed bodyless POST handling so stop/start-style actions no longer fail with empty JSON body parsing errors.
 - Added stronger visibility of system status:
@@ -33,6 +40,12 @@ This document tracks public-product research for SquidServers and how SimpleServ
   - quick three-step action guidance
   - local-first online behavior note
   - clearer empty states for server/content workflows
+- Added recipe-driven setup shortcuts:
+  - crossplay recipe
+  - modded recipe
+  - non-premium recipe
+- Added runtime troubleshooting panel with contextual guidance and one-click diagnostics refresh.
+- Added automatic tunnel-status polling while public endpoint provisioning is pending.
 
 ## Parity Backlog
 
