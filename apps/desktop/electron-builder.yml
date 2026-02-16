@@ -42,6 +42,7 @@ win:
     - nsis
 
 linux:
+  maintainer: "SimpleServers contributors <charlesshaw3@users.noreply.github.com>"
   target:
     - AppImage
     - deb

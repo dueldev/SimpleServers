@@ -1,6 +1,6 @@
 {
   "name": "simpleservers",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "SimpleServers - Open-source local-first Minecraft server hosting and administration platform",
   "license": "MIT",
@@ -17,7 +17,7 @@
     "dev": "concurrently \"npm run dev -w apps/api\" \"npm run dev -w apps/web\"",
     "build": "npm run build -w apps/api && npm run build -w apps/web",
     "desktop:build": "npm run build -w apps/api && npm run build -w apps/web && npm run build -w apps/desktop",
-    "desktop:publish": "npm run build -w apps/api && npm run build -w apps/web && npm run dist:publish -w apps/desktop",
+    "desktop:publish": "npm run desktop:build && npm run dist:publish -w apps/desktop",
     "desktop:dev": "npm run build -w apps/api && npm run build -w apps/desktop && concurrently \"npm run dev -w apps/web\" \"wait-on http://127.0.0.1:5174 && cross-env SIMPLESERVERS_DESKTOP_DEV=1 VITE_DEV_SERVER_URL=http://127.0.0.1:5174 electron apps/desktop/dist/main.js\"",
     "desktop:dist": "npm run desktop:build && npm run dist -w apps/desktop",
     "test": "npm run test -w apps/api && npm run test:e2e -w apps/web",
