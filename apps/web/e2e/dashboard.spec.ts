@@ -115,6 +115,21 @@ test("connects and renders dashboard sections", async ({ page }) => {
       return;
     }
 
+    if (pathname === "/system/hardware" && method === "GET") {
+      await withJson(200, {
+        platform: "darwin",
+        arch: "arm64",
+        cpuCores: 8,
+        totalMemoryMb: 16384,
+        freeMemoryMb: 8192,
+        recommendations: {
+          quickStartMinMemoryMb: 2048,
+          quickStartMaxMemoryMb: 4096
+        }
+      });
+      return;
+    }
+
     if (pathname === "/setup/catalog" && method === "GET") {
       await withJson(200, {
         catalog: {

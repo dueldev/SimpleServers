@@ -191,6 +191,18 @@ type VersionCatalog = {
   fabric: Array<{ id: string; stable: boolean }>;
 };
 
+type HardwareProfile = {
+  platform: string;
+  arch: string;
+  cpuCores: number;
+  totalMemoryMb: number;
+  freeMemoryMb: number;
+  recommendations: {
+    quickStartMinMemoryMb: number;
+    quickStartMaxMemoryMb: number;
+  };
+};
+
 const defaultApiBase = "http://127.0.0.1:4010";
 
 export default function App() {
@@ -219,6 +231,7 @@ export default function App() {
   const [audit, setAudit] = useState<Audit[]>([]);
   const [status, setStatus] = useState<{ servers: { total: number; running: number; crashed: number }; alerts: { open: number; total: number } } | null>(null);
   const [catalog, setCatalog] = useState<VersionCatalog>({ vanilla: [], paper: [], fabric: [] });
+  const [hardware, setHardware] = useState<HardwareProfile | null>(null);
 
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   const [logs, setLogs] = useState<Array<{ ts: string; line: string }>>([]);
@@ -375,14 +388,15 @@ export default function App() {
   async function refreshAll(): Promise<void> {
     try {
       setBusy(true);
-      const [serversRes, alertsRes, tasksRes, tunnelsRes, auditRes, statusRes, catalogRes] = await Promise.all([
+      const [serversRes, alertsRes, tasksRes, tunnelsRes, auditRes, statusRes, catalogRes, hardwareRes] = await Promise.all([
         api.current.get<{ servers: Server[] }>("/servers"),
         api.current.get<{ alerts: Alert[] }>("/alerts"),
         api.current.get<{ tasks: Task[] }>("/tasks"),
         api.current.get<{ tunnels: Tunnel[] }>("/tunnels"),
         api.current.get<{ logs: Audit[] }>("/audit"),
         api.current.get<{ servers: { total: number; running: number; crashed: number }; alerts: { open: number; total: number } }>("/system/status"),
-        api.current.get<{ catalog: VersionCatalog }>("/setup/catalog")
+        api.current.get<{ catalog: VersionCatalog }>("/setup/catalog"),
+        api.current.get<HardwareProfile>("/system/hardware")
       ]);
 
       setServers(serversRes.servers);
@@ -392,6 +406,7 @@ export default function App() {
       setAudit(auditRes.logs);
       setStatus(statusRes);
       setCatalog(catalogRes.catalog);
+      setHardware(hardwareRes);
 
       if (!selectedServerId && serversRes.servers.length > 0) {
         setSelectedServerId(serversRes.servers[0].id);
@@ -1021,6 +1036,12 @@ export default function App() {
         <p className="muted-note">
           Instant Launch creates a server from your selected preset, starts it, and enables quick public hosting automatically.
         </p>
+        {hardware ? (
+          <p className="muted-note">
+            Host profile: {hardware.cpuCores} cores, {Math.floor(hardware.totalMemoryMb / 1024)} GB RAM, recommended quick-start memory{" "}
+            {hardware.recommendations.quickStartMinMemoryMb}-{hardware.recommendations.quickStartMaxMemoryMb} MB.
+          </p>
+        ) : null}
         <form className="grid-form" onSubmit={(event) => void createServerSubmit(event)}>
           <label>
             Name

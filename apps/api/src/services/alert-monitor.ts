@@ -3,6 +3,8 @@ import fs from "node:fs";
 import { store } from "../repositories/store.js";
 
 const MB = 1024 * 1024;
+const DEDUPE_WINDOW_MS = 60_000;
+const DEDUPE_TTL_MS = 10 * 60_000;
 
 export class AlertMonitorService {
   private timer: NodeJS.Timeout | null = null;
@@ -69,7 +71,7 @@ export class AlertMonitorService {
         }
 
         try {
-          const statsFs = fs.statfsSync(server.rootPath);
+          const statsFs = await fs.promises.statfs(server.rootPath);
           const available = statsFs.bavail * statsFs.bsize;
           const total = statsFs.blocks * statsFs.bsize;
           const freeRatio = total > 0 ? available / total : 1;
@@ -89,6 +91,8 @@ export class AlertMonitorService {
         this.createAlert(server.id, "warning", "pid_probe_failed", `Unable to sample process metrics: ${message}`);
       }
     }
+
+    this.pruneDedupe();
   }
 
   createAlert(serverId: string, severity: "info" | "warning" | "critical", kind: string, message: string): void {
@@ -96,11 +100,20 @@ export class AlertMonitorService {
     const now = Date.now();
     const previous = this.dedupe.get(key);
 
-    if (previous && now - previous < 60_000) {
+    if (previous && now - previous < DEDUPE_WINDOW_MS) {
       return;
     }
 
     this.dedupe.set(key, now);
     store.createAlert({ serverId, severity, kind, message });
+  }
+
+  private pruneDedupe(): void {
+    const now = Date.now();
+    for (const [key, value] of this.dedupe.entries()) {
+      if (now - value > DEDUPE_TTL_MS) {
+        this.dedupe.delete(key);
+      }
+    }
   }
 }

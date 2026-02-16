@@ -22,6 +22,7 @@ Base URL: `http://127.0.0.1:4010`
 - `GET /system/java`
 - `GET /system/java/channels`
 - `GET /system/status`
+- `GET /system/hardware`
 
 ## Users (`owner`)
 

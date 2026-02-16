@@ -40,6 +40,29 @@ describe("api integration", () => {
     expect(response.json()).toMatchObject({ ok: true });
   });
 
+  it("returns host hardware profile", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/system/hardware",
+      headers: {
+        "x-api-token": "test-owner-token"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      platform: expect.any(String),
+      arch: expect.any(String),
+      cpuCores: expect.any(Number),
+      totalMemoryMb: expect.any(Number),
+      freeMemoryMb: expect.any(Number),
+      recommendations: {
+        quickStartMinMemoryMb: expect.any(Number),
+        quickStartMaxMemoryMb: expect.any(Number)
+      }
+    });
+  });
+
   it("rejects protected endpoints without token", async () => {
     const response = await app.inject({
       method: "GET",

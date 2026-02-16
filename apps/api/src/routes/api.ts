@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -195,6 +196,24 @@ function pickLatestVersionForType(
   return stable ?? entries[0]?.id ?? null;
 }
 
+function resolveQuickStartMemoryProfile(
+  preset: "custom" | "survival" | "modded" | "minigame",
+  totalMemoryMb: number
+): { minMemoryMb: number; maxMemoryMb: number } {
+  const baseline =
+    preset === "modded" ? { minMemoryMb: 4096, maxMemoryMb: 8192 } : preset === "minigame" ? { minMemoryMb: 3072, maxMemoryMb: 6144 } : { minMemoryMb: 2048, maxMemoryMb: 4096 };
+
+  // Keep allocations conservative to avoid host thrashing on smaller systems.
+  const cap = Math.max(2048, Math.floor(totalMemoryMb * 0.5));
+  const boundedMax = Math.min(baseline.maxMemoryMb, cap);
+  const boundedMin = Math.min(baseline.minMemoryMb, Math.max(1024, Math.floor(boundedMax * 0.6)));
+
+  return {
+    minMemoryMb: boundedMin,
+    maxMemoryMb: Math.max(boundedMin, boundedMax)
+  };
+}
+
 function validateEditableFile(fileName: string): string {
   if (!editableFiles.has(fileName)) {
     throw new Error(`File ${fileName} is not editable via API`);
@@ -346,6 +365,24 @@ export async function registerApiRoutes(
     };
   });
 
+  app.get("/system/hardware", { preHandler: [authenticate] }, async () => {
+    const totalMemoryMb = Math.floor(os.totalmem() / (1024 * 1024));
+    const freeMemoryMb = Math.floor(os.freemem() / (1024 * 1024));
+    const quickStartProfile = resolveQuickStartMemoryProfile("survival", totalMemoryMb);
+
+    return {
+      platform: process.platform,
+      arch: process.arch,
+      cpuCores: os.cpus().length,
+      totalMemoryMb,
+      freeMemoryMb,
+      recommendations: {
+        quickStartMinMemoryMb: quickStartProfile.minMemoryMb,
+        quickStartMaxMemoryMb: quickStartProfile.maxMemoryMb
+      }
+    };
+  });
+
   const createAndProvisionServer = async (payload: z.infer<typeof createServerSchema>) => {
     if (payload.maxMemoryMb < payload.minMemoryMb) {
       throw app.httpErrors.badRequest("maxMemoryMb must be >= minMemoryMb");
@@ -433,6 +470,8 @@ export async function registerApiRoutes(
     }
     const payload = parsedQuickStart.data;
     const type = payload.type ?? (payload.preset === "modded" ? "fabric" : "paper");
+    const hostTotalMemoryMb = Math.max(1024, Math.floor(os.totalmem() / (1024 * 1024)));
+    const memoryProfile = resolveQuickStartMemoryProfile(payload.preset, hostTotalMemoryMb);
     const catalog = await deps.versions.getSetupCatalog();
     const resolvedVersion = payload.mcVersion ?? pickLatestVersionForType(catalog, type);
     if (!resolvedVersion) {
@@ -447,13 +486,16 @@ export async function registerApiRoutes(
         mcVersion: resolvedVersion,
         port: payload.port ?? 25565,
         bedrockPort: payload.bedrockPort ?? 19132,
-        minMemoryMb: 1024,
-        maxMemoryMb: 4096,
+        minMemoryMb: memoryProfile.minMemoryMb,
+        maxMemoryMb: memoryProfile.maxMemoryMb,
         allowCracked: payload.allowCracked,
         enableGeyser: payload.preset !== "modded",
         enableFloodgate: payload.preset !== "modded"
       })
     );
+    if (!createPayload.enableGeyser) {
+      createPayload.bedrockPort = null;
+    }
 
     const { server, policyFindings } = await createAndProvisionServer(createPayload);
 
@@ -511,6 +553,10 @@ export async function registerApiRoutes(
       preset: payload.preset,
       type,
       version: resolvedVersion,
+      memoryMb: {
+        min: createPayload.minMemoryMb,
+        max: createPayload.maxMemoryMb
+      },
       publicHosting: payload.publicHosting,
       startServer: payload.startServer,
       started,

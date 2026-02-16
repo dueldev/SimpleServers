@@ -92,9 +92,18 @@ export class ServerSetupService {
   }
 
   buildLaunchCommand(server: ServerRecord): { executable: string; args: string[] } {
+    const jvmTuningArgs = [
+      "-XX:+UseG1GC",
+      "-XX:+ParallelRefProcEnabled",
+      "-XX:+DisableExplicitGC",
+      "-XX:MaxGCPauseMillis=200",
+      "-XX:+UseStringDeduplication"
+    ];
+
     const args = [
       `-Xms${server.minMemoryMb}M`,
       `-Xmx${server.maxMemoryMb}M`,
+      ...jvmTuningArgs,
       "-Dterminal.jline=false",
       "-Dterminal.ansi=true",
       "-jar",

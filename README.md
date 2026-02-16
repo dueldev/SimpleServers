@@ -14,6 +14,7 @@ It is designed as a stronger open alternative to closed desktop hosts: fast setu
 - Backups, pre-restore safety snapshots, retention policies, and prune jobs.
 - Alerts for crash, memory, CPU, and disk conditions.
 - Managed Java runtime bootstrap for first-run provisioning without local Java setup.
+- Hardware-aware quick-start memory sizing and GC-tuned JVM launch flags for better cross-platform efficiency.
 - Content manager with Modrinth and CurseForge search/install/update flows.
 - Multi-user management with owner token rotation workflows.
 - Remote-control mode with hardened non-local access defaults.
