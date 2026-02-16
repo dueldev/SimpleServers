@@ -1,9 +1,13 @@
 {
   "name": "simpleservers",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "SimpleServers - Open-source local-first Minecraft server hosting and administration platform",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/charlesshaw3/SimpleServers.git"
+  },
   "workspaces": [
     "apps/api",
     "apps/web",

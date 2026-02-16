@@ -7,6 +7,12 @@ generateUpdatesFilesForAllChannels: true
 directories:
   output: ../../release/desktop
 
+publish:
+  provider: github
+  owner: charlesshaw3
+  repo: SimpleServers
+  releaseType: release
+
 files:
   - dist/**
   - package.json
