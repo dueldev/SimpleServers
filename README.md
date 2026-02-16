@@ -6,8 +6,8 @@ It is designed as a stronger open alternative to closed desktop hosts: fast setu
 
 Latest stable desktop release: `v0.1.9`
 
-- Releases: `https://github.com/charlesshaw3/SimpleServers/releases`
-- Current release: `https://github.com/charlesshaw3/SimpleServers/releases/tag/v0.1.9`
+- Releases: `https://github.com/dueldev/SimpleServers/releases`
+- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.1.9`
 
 ## Production Features
 

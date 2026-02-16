@@ -2,7 +2,7 @@
 
 SimpleServers ships desktop artifacts via Electron Builder and GitHub Actions.
 
-Canonical repository: `https://github.com/charlesshaw3/SimpleServers`
+Canonical repository: `https://github.com/dueldev/SimpleServers`
 
 ## Workflows
 
