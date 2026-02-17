@@ -4,10 +4,10 @@ SimpleServers is an open-source, local-first Minecraft server hosting and admini
 
 It is designed as a stronger open alternative to closed desktop hosts: fast setup, safer operations, and richer owner tooling.
 
-Latest stable desktop release: `v0.5.0`
+Latest stable desktop release: `v0.5.1`
 
 - Releases: `https://github.com/dueldev/SimpleServers/releases`
-- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.5.0`
+- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.5.1`
 
 ## Production Features
 
@@ -129,6 +129,7 @@ npm run desktop:publish
 ```bash
 npm run test:api
 npm run test:e2e
+npm run test:ui:live
 ```
 
 ## Auth and Defaults
@@ -151,6 +152,7 @@ export SIMPLESERVERS_REMOTE_TOKEN='replace-this-too'
 - On first launch, the desktop app boots an embedded API and then loads the UI.
 - A startup screen is shown while services initialize.
 - The app writes startup diagnostics to a desktop log for fast triage.
+- `v0.5.1` fixes repeat Instant Launch naming collisions by auto-resolving duplicate server names and adds a live UI smoke test workflow (`npm run test:ui:live`) for desktop/mobile usability checks.
 - `v0.5.0` adds a major UX/functionality pass: focus layout mode, Playit secret setup flow, stronger endpoint matching, and simplified operator paths.
 - `v0.4.1` hardens command-palette action safety, strengthens tunnel recovery fixes, and adds deeper validation pass coverage across API/web/desktop flows.
 - `v0.4.0` adds Quick Actions command palette UX, Next Best Action guidance, full-file snapshot rollback in Advanced editor, and stronger quick-host recovery actions.

@@ -67,7 +67,7 @@ Packaged apps will periodically check for updates and prompt for restart when a 
 
 ## Recommended Release Procedure
 
-1. Run full local verification (`npm run typecheck`, `npm run build`, `npm run test`).
+1. Run full local verification (`npm run typecheck`, `npm run build`, `npm run test`, `npm run test:ui:live`).
 2. Bump version metadata.
 3. Push tag `vX.Y.Z`.
 4. Confirm signed artifacts and updater metadata were uploaded.
@@ -95,6 +95,10 @@ Default log paths:
 
 ## Recent Release Notes
 
+- `v0.5.1`
+  - Fixed repeat Instant Launch failures caused by duplicate default server names (`UNIQUE constraint failed: servers.name`) by auto-resolving quickstart names.
+  - Added explicit duplicate-name conflict handling for manual server creation with a user-facing `409` response.
+  - Added a live usability smoke workflow (`npm run test:ui:live`) that validates desktop and mobile view switching against real API/web services.
 - `v0.5.0`
   - Reworked dashboard flow with Focus-vs-Full layout mode to reduce first-run clutter and improve navigation clarity.
   - Added Playit secret setup API (`POST /tunnels/:id/playit/secret`) and UI wiring for no-shell tunnel authentication.

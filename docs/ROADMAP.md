@@ -2,7 +2,13 @@
 
 ## Status
 
-Current stable milestone: `v0.5.0` (validated by local typecheck/tests/build/desktop build).
+Current stable milestone: `v0.5.1` (validated by local typecheck/tests/build/desktop build).
+
+## Implemented in v0.5.1
+
+- Fixed Instant Launch repeat-run usability by auto-generating unique server names when a requested name already exists.
+- Added explicit `409 Conflict` responses for duplicate manual server names instead of surfacing raw database errors.
+- Added automated live UI smoke validation (`npm run test:ui:live`) covering desktop and mobile navigation flows against real API/web services.
 
 ## Implemented in v0.5.0
 

@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authenticate, requireRole } from "../lib/auth.js";
 import { loadConfig } from "../lib/config.js";
+import { resolveUniqueServerName } from "../lib/server-name.js";
 import type { UserRole } from "../domain/types.js";
 import { store } from "../repositories/store.js";
 import { BackupService } from "../services/backup-service.js";
@@ -45,7 +46,7 @@ const ignoredDirectoryNames = new Set(["node_modules", "libraries", ".git", "cac
 const maxEditableFileBytes = 1024 * 1024; // 1 MB safety guard for in-app editing.
 const maxEditorFiles = 350;
 const maxEditorDepth = 5;
-const APP_VERSION = "0.5.0";
+const APP_VERSION = "0.5.1";
 const REPOSITORY_URL = "https://github.com/dueldev/SimpleServers";
 
 const userCreateSchema = z.object({
@@ -667,6 +668,11 @@ export async function registerApiRoutes(
       throw app.httpErrors.badRequest(`Policy violation: ${blocking.message}`);
     }
 
+    const nameInUse = store.listServers().some((server) => server.name.toLowerCase() === payload.name.toLowerCase());
+    if (nameInUse) {
+      throw app.httpErrors.conflict(`Server name "${payload.name}" is already in use.`);
+    }
+
     const javaRuntime = payload.javaPath
       ? await deps.java.inspectJava(payload.javaPath)
       : await deps.java.chooseJavaForVersion(payload.mcVersion);
@@ -1069,6 +1075,15 @@ export async function registerApiRoutes(
     );
     if (!createPayload.enableGeyser) {
       createPayload.bedrockPort = null;
+    }
+
+    try {
+      createPayload.name = resolveUniqueServerName(
+        createPayload.name,
+        store.listServers().map((server) => server.name)
+      );
+    } catch (error) {
+      throw app.httpErrors.conflict(error instanceof Error ? error.message : "Unable to generate a unique server name.");
     }
 
     const { server, policyFindings } = await createAndProvisionServer(createPayload);

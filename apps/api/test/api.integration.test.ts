@@ -88,7 +88,7 @@ describe("api integration", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().build.appVersion).toBe("0.5.0");
+    expect(response.json().build.appVersion).toBe("0.5.1");
     expect(response.json().security.localOnlyByDefault).toBe(true);
     expect(response.json().security.authModel).toBe("token-rbac");
   });
@@ -168,6 +168,42 @@ describe("api integration", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().user.username).toBe("owner");
+  });
+
+  it("returns conflict when creating a server with a duplicate name", async () => {
+    const serverRoot = path.join(testDataDir, "servers", "duplicate-name-existing");
+    fs.mkdirSync(serverRoot, { recursive: true });
+    store.createServer({
+      name: "Duplicate Name",
+      type: "paper",
+      mcVersion: "1.21.11",
+      jarPath: path.join(serverRoot, "server.jar"),
+      rootPath: serverRoot,
+      javaPath: "java",
+      port: 25564,
+      bedrockPort: null,
+      minMemoryMb: 1024,
+      maxMemoryMb: 2048
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/servers",
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {
+        name: "Duplicate Name",
+        type: "paper",
+        mcVersion: "1.21.11",
+        port: 25565,
+        minMemoryMb: 1024,
+        maxMemoryMb: 2048
+      }
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().message).toContain("already in use");
   });
 
   it("creates users with owner role auth", async () => {

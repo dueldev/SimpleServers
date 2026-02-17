@@ -1,6 +1,6 @@
 {
   "name": "simpleservers",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "description": "SimpleServers - Open-source local-first Minecraft server hosting and administration platform",
   "license": "MIT",
@@ -23,6 +23,7 @@
     "test": "npm rebuild better-sqlite3 && npm run test -w apps/api && npm run test:e2e -w apps/web",
     "test:api": "npm rebuild better-sqlite3 && npm run test -w apps/api",
     "test:e2e": "npm run test:e2e -w apps/web",
+    "test:ui:live": "node scripts/ui-live-smoke.mjs",
     "lint": "npm run lint -w apps/api && npm run lint -w apps/web && npm run lint -w apps/desktop",
     "typecheck": "npm run typecheck -w apps/api && npm run typecheck -w apps/web && npm run typecheck -w apps/desktop",
     "format": "npm run format -w apps/api && npm run format -w apps/web && npm run format -w apps/desktop"
