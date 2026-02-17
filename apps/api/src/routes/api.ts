@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -23,6 +24,9 @@ import { CrashReportService } from "../services/crash-report-service.js";
 import { PolicyService } from "../services/policy-service.js";
 import { RemoteControlService } from "../services/remote-control-service.js";
 import { PreflightService } from "../services/preflight-service.js";
+import { ReliabilityService } from "../services/reliability-service.js";
+import { PlayerAdminService } from "../services/player-admin-service.js";
+import { MigrationService } from "../services/migration-service.js";
 
 const config = loadConfig();
 const playitSecretsDir = path.join(config.dataDir, "secrets", "playit");
@@ -46,7 +50,7 @@ const ignoredDirectoryNames = new Set(["node_modules", "libraries", ".git", "cac
 const maxEditableFileBytes = 1024 * 1024; // 1 MB safety guard for in-app editing.
 const maxEditorFiles = 350;
 const maxEditorDepth = 5;
-const APP_VERSION = "0.5.2";
+const APP_VERSION = "0.5.3";
 const REPOSITORY_URL = "https://github.com/dueldev/SimpleServers";
 
 const userCreateSchema = z.object({
@@ -201,6 +205,101 @@ const bulkServerActionSchema = z.object({
 
 const performanceAdvisorQuerySchema = z.object({
   hours: z.coerce.number().int().min(1).max(24 * 14).default(24)
+});
+
+const reliabilityQuerySchema = z.object({
+  hours: z.coerce.number().int().min(1).max(24 * 30).default(24 * 7),
+  serverId: z.string().min(4).optional()
+});
+
+const cloudDestinationSchema = z.object({
+  provider: z.enum(["s3", "backblaze", "google_drive"]),
+  name: z.string().trim().min(2).max(80),
+  encryptionPassphrase: z.string().min(12).max(512),
+  enabled: z.boolean().default(true),
+  config: z.record(z.string(), z.unknown())
+});
+
+const cloudDestinationUpdateSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  encryptionPassphrase: z.string().min(12).max(512),
+  enabled: z.boolean().default(true),
+  config: z.record(z.string(), z.unknown())
+});
+
+const uploadCloudBackupSchema = z.object({
+  destinationId: z.string().min(4)
+});
+
+const playerIdentitySchema = z.object({
+  name: z.string().trim().min(2).max(32),
+  uuid: z.string().trim().min(2).max(128).optional()
+});
+
+const playerOpSchema = playerIdentitySchema.extend({
+  level: z.number().int().min(1).max(4).default(4),
+  bypassesPlayerLimit: z.boolean().default(true)
+});
+
+const playerBanSchema = playerIdentitySchema.extend({
+  reason: z.string().trim().min(1).max(200).optional(),
+  expires: z.string().trim().max(80).optional()
+});
+
+const removePlayerSchema = z.object({
+  nameOrUuid: z.string().trim().min(2).max(128)
+});
+
+const banIpSchema = z.object({
+  ip: z.string().trim().min(3).max(128),
+  reason: z.string().trim().min(1).max(200).optional(),
+  expires: z.string().trim().max(80).optional()
+});
+
+const unbanIpSchema = z.object({
+  ip: z.string().trim().min(3).max(128)
+});
+
+const playerHistoryQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(400).default(150)
+});
+
+const modpackPlanSchema = z.object({
+  provider: z.enum(["modrinth", "curseforge"]),
+  projectId: z.string().min(1),
+  requestedVersionId: z.string().optional()
+});
+
+const modpackRollbackSchema = z.object({
+  rollbackId: z.string().min(4)
+});
+
+const migrationManualSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  type: z.enum(["vanilla", "paper", "fabric"]),
+  mcVersion: z.string().trim().min(3).max(40),
+  rootPath: z.string().trim().min(1).max(2048),
+  port: z.number().int().min(1024).max(65535).default(25565),
+  bedrockPort: z.number().int().min(1024).max(65535).nullable().optional(),
+  minMemoryMb: z.number().int().min(256).max(32768).default(1024),
+  maxMemoryMb: z.number().int().min(512).max(65536).default(4096),
+  javaPath: z.string().trim().min(1).max(1024).optional(),
+  jarPath: z.string().trim().min(1).max(2048).optional()
+});
+
+const migrationSquidSchema = z.object({
+  manifestPath: z.string().trim().min(1).max(2048),
+  javaPath: z.string().trim().min(1).max(1024).optional()
+});
+
+const auditExportQuerySchema = z.object({
+  format: z.enum(["json", "csv"]).default("json"),
+  limit: z.coerce.number().int().min(1).max(5000).default(1000)
+});
+
+const checksumVerifySchema = z.object({
+  filePath: z.string().trim().min(1).max(4096),
+  expectedSha256: z.string().trim().regex(/^[a-fA-F0-9]{64}$/).optional()
 });
 
 function applyPreset(payload: z.infer<typeof createServerSchema>): z.infer<typeof createServerSchema> {
@@ -514,6 +613,68 @@ function normalizePlayitSecretInput(input: string): string {
   return "";
 }
 
+function redactedCloudConfig(configValue: unknown): Record<string, unknown> {
+  if (!configValue || typeof configValue !== "object") {
+    return {};
+  }
+  const source = configValue as Record<string, unknown>;
+  const redacted: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(source)) {
+    const normalized = key.toLowerCase();
+    if (
+      normalized.includes("secret") ||
+      normalized.includes("token") ||
+      normalized.includes("password") ||
+      normalized.includes("accesskey") ||
+      normalized.includes("keyid")
+    ) {
+      redacted[key] = "***";
+      continue;
+    }
+    redacted[key] = value;
+  }
+  return redacted;
+}
+
+function sanitizeCloudDestination(destination: {
+  id: string;
+  serverId: string;
+  provider: string;
+  name: string;
+  configJson: string;
+  enabled: number;
+  createdAt: string;
+  updatedAt: string;
+}) {
+  let parsedConfig: Record<string, unknown> = {};
+  try {
+    parsedConfig = JSON.parse(destination.configJson) as Record<string, unknown>;
+  } catch {
+    parsedConfig = {};
+  }
+  return {
+    id: destination.id,
+    serverId: destination.serverId,
+    provider: destination.provider,
+    name: destination.name,
+    enabled: destination.enabled,
+    createdAt: destination.createdAt,
+    updatedAt: destination.updatedAt,
+    config: redactedCloudConfig(parsedConfig)
+  };
+}
+
+async function sha256ForFile(filePath: string): Promise<string> {
+  const hash = crypto.createHash("sha256");
+  await new Promise<void>((resolve, reject) => {
+    const stream = fs.createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk as Buffer));
+    stream.on("error", reject);
+    stream.on("end", () => resolve());
+  });
+  return hash.digest("hex");
+}
+
 export async function registerApiRoutes(
   app: FastifyInstance,
   deps: {
@@ -532,6 +693,9 @@ export async function registerApiRoutes(
     backupRetention: BackupRetentionService;
     policy: PolicyService;
     remoteControl: RemoteControlService;
+    reliability: ReliabilityService;
+    playerAdmin: PlayerAdminService;
+    migration: MigrationService;
   }
 ): Promise<void> {
   app.get("/health", async () => ({ ok: true, name: "SimpleServers API" }));
@@ -676,11 +840,19 @@ export async function registerApiRoutes(
         signatureStatus,
         signatureProvider: process.env.SIMPLESERVERS_BUILD_SIGNATURE_PROVIDER ?? null,
         releaseChannel: process.env.SIMPLESERVERS_UPDATE_CHANNEL ?? "stable",
-        repository: REPOSITORY_URL
+        repository: REPOSITORY_URL,
+        signedRelease: signatureStatus === "signed",
+        signingMethod: process.env.SIMPLESERVERS_BUILD_SIGNING_METHOD ?? null
       },
       verification: {
         checksumUrl: process.env.SIMPLESERVERS_RELEASE_CHECKSUM_URL ?? null,
-        attestationUrl: process.env.SIMPLESERVERS_RELEASE_ATTESTATION_URL ?? null
+        attestationUrl: process.env.SIMPLESERVERS_RELEASE_ATTESTATION_URL ?? null,
+        sbomUrl: process.env.SIMPLESERVERS_RELEASE_SBOM_URL ?? null,
+        checksumVerificationEnabled: Boolean(process.env.SIMPLESERVERS_RELEASE_CHECKSUM_URL)
+      },
+      attestations: {
+        predicateType: process.env.SIMPLESERVERS_RELEASE_ATTESTATION_PREDICATE ?? "https://slsa.dev/provenance/v1",
+        issuer: process.env.SIMPLESERVERS_RELEASE_ATTESTATION_ISSUER ?? null
       },
       security: {
         localOnlyByDefault: true,
@@ -690,7 +862,118 @@ export async function registerApiRoutes(
         remoteTokenRequired: remote.requireToken,
         configuredRemoteToken: remote.configuredToken,
         allowedOrigins: remote.allowedOrigins
+      },
+      exports: {
+        auditExportFormats: ["json", "csv"],
+        auditExportEndpoint: "/audit/export"
       }
+    };
+  });
+
+  app.post("/system/trust/verify-checksum", { preHandler: [authenticate, requireRole("admin")] }, async (request) => {
+    const payload = checksumVerifySchema.parse(request.body ?? {});
+    const resolved = path.resolve(payload.filePath);
+    if (!fs.existsSync(resolved)) {
+      throw app.httpErrors.notFound("File not found for checksum verification");
+    }
+    const sha256 = await sha256ForFile(resolved);
+    return {
+      filePath: resolved,
+      sha256,
+      matchesExpected: payload.expectedSha256 ? sha256.toLowerCase() === payload.expectedSha256.toLowerCase() : null
+    };
+  });
+
+  app.get("/system/reliability", { preHandler: [authenticate] }, async (request) => {
+    const query = reliabilityQuerySchema.parse(request.query ?? {});
+    if (query.serverId && !store.getServerById(query.serverId)) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+    return deps.reliability.buildDashboard({
+      hours: query.hours,
+      serverId: query.serverId
+    });
+  });
+
+  app.get("/system/bedrock-strategy", { preHandler: [authenticate] }, async () => {
+    return {
+      selectedStrategy: "java_geyser_floodgate_crossplay",
+      nativeBedrockSupport: false,
+      oneClickCrossplay: {
+        available: true,
+        serverType: "paper",
+        toggles: {
+          enableGeyser: true,
+          enableFloodgate: true
+        },
+        limits: [
+          "Requires Java Edition server runtime (Paper).",
+          "Some Java-only plugins/mods can break Bedrock parity.",
+          "Bedrock feature parity is managed through Geyser/Floodgate compatibility."
+        ]
+      },
+      recommendation: "Use Paper + Geyser + Floodgate one-click crossplay for mixed Java/Bedrock players."
+    };
+  });
+
+  app.get("/system/hardening-checklist", { preHandler: [authenticate] }, async () => {
+    const owner = store.listUsers().find((user) => user.role === "owner");
+    const ownerTokenIsDefault = owner?.apiToken === "simpleservers-dev-admin-token";
+    const remote = deps.remoteControl.getStatus();
+    const hasAnyCloudDestination = store
+      .listServers()
+      .some((server) => store.listCloudBackupDestinations(server.id).length > 0);
+    const startupEvents = store
+      .listServers()
+      .flatMap((server) => store.listServerStartupEvents({ serverId: server.id, limit: 200 }))
+      .filter((entry) => entry.success === 1)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    return {
+      quickLocalMode: {
+        enabled: true,
+        description: "Start locally with minimal security setup, then apply hardening after your first successful launch.",
+        firstSuccessfulLaunchAt: startupEvents[0]?.createdAt ?? null
+      },
+      hardeningSteps: [
+        {
+          id: "rotate_owner_token",
+          title: "Rotate default owner token",
+          done: !ownerTokenIsDefault,
+          detail: ownerTokenIsDefault
+            ? "Owner token is still the development default."
+            : "Owner token has been rotated from the default value."
+        },
+        {
+          id: "configure_cloud_backup_destination",
+          title: "Configure encrypted cloud backup destination",
+          done: hasAnyCloudDestination,
+          detail: hasAnyCloudDestination
+            ? "At least one cloud destination is configured."
+            : "No cloud backup destinations configured yet."
+        },
+        {
+          id: "remote_control_review",
+          title: "Review remote control policy",
+          done: !remote.enabled || (remote.requireToken && remote.allowedOrigins.length > 0),
+          detail: remote.enabled
+            ? remote.requireToken
+              ? remote.allowedOrigins.length > 0
+                ? "Remote control is enabled with token and origin restrictions."
+                : "Remote control is enabled, but allowed origins are not configured."
+              : "Remote control is enabled without remote token enforcement."
+            : "Remote control is disabled (safe local default)."
+        },
+        {
+          id: "signed_release_validation",
+          title: "Validate signed release + checksum",
+          done: (process.env.SIMPLESERVERS_BUILD_SIGNATURE_STATUS ?? "") === "signed",
+          detail:
+            (process.env.SIMPLESERVERS_BUILD_SIGNATURE_STATUS ?? "") === "signed"
+              ? "Release metadata reports signed build status."
+              : "Current build metadata does not indicate a signed release."
+        }
+      ]
     };
   });
 
@@ -1819,6 +2102,98 @@ export async function registerApiRoutes(
     };
   });
 
+  app.get("/servers/:id/player-admin", { preHandler: [authenticate] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const query = playerHistoryQuerySchema.parse(request.query ?? {});
+    return {
+      state: deps.playerAdmin.getState(id, query.limit)
+    };
+  });
+
+  app.post("/servers/:id/players/op", { preHandler: [authenticate, requireRole("moderator")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const payload = playerOpSchema.parse(request.body ?? {});
+    const ops = deps.playerAdmin.addOp({
+      serverId: id,
+      name: payload.name,
+      uuid: payload.uuid,
+      level: payload.level,
+      bypassesPlayerLimit: payload.bypassesPlayerLimit
+    });
+    writeAudit(request.user!.username, "players.op.add", "server", id, {
+      name: payload.name,
+      uuid: payload.uuid
+    });
+    return { ops };
+  });
+
+  app.post("/servers/:id/players/op/remove", { preHandler: [authenticate, requireRole("moderator")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const payload = removePlayerSchema.parse(request.body ?? {});
+    const ops = deps.playerAdmin.removeOp(id, payload.nameOrUuid);
+    writeAudit(request.user!.username, "players.op.remove", "server", id, payload);
+    return { ops };
+  });
+
+  app.post("/servers/:id/players/whitelist", { preHandler: [authenticate, requireRole("moderator")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const payload = playerIdentitySchema.parse(request.body ?? {});
+    const whitelist = deps.playerAdmin.addWhitelist(id, payload.name, payload.uuid);
+    writeAudit(request.user!.username, "players.whitelist.add", "server", id, payload);
+    return { whitelist };
+  });
+
+  app.post("/servers/:id/players/whitelist/remove", { preHandler: [authenticate, requireRole("moderator")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const payload = removePlayerSchema.parse(request.body ?? {});
+    const whitelist = deps.playerAdmin.removeWhitelist(id, payload.nameOrUuid);
+    writeAudit(request.user!.username, "players.whitelist.remove", "server", id, payload);
+    return { whitelist };
+  });
+
+  app.post("/servers/:id/players/ban", { preHandler: [authenticate, requireRole("moderator")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const payload = playerBanSchema.parse(request.body ?? {});
+    const bans = deps.playerAdmin.banPlayer({
+      serverId: id,
+      name: payload.name,
+      uuid: payload.uuid,
+      reason: payload.reason,
+      expires: payload.expires
+    });
+    writeAudit(request.user!.username, "players.ban.add", "server", id, payload);
+    return { bans };
+  });
+
+  app.post("/servers/:id/players/unban", { preHandler: [authenticate, requireRole("moderator")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const payload = removePlayerSchema.parse(request.body ?? {});
+    const bans = deps.playerAdmin.unbanPlayer(id, payload.nameOrUuid);
+    writeAudit(request.user!.username, "players.ban.remove", "server", id, payload);
+    return { bans };
+  });
+
+  app.post("/servers/:id/players/ban-ip", { preHandler: [authenticate, requireRole("moderator")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const payload = banIpSchema.parse(request.body ?? {});
+    const bannedIps = deps.playerAdmin.banIp({
+      serverId: id,
+      ip: payload.ip,
+      reason: payload.reason,
+      expires: payload.expires
+    });
+    writeAudit(request.user!.username, "players.ip_ban.add", "server", id, payload);
+    return { bannedIps };
+  });
+
+  app.post("/servers/:id/players/unban-ip", { preHandler: [authenticate, requireRole("moderator")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const payload = unbanIpSchema.parse(request.body ?? {});
+    const bannedIps = deps.playerAdmin.unbanIp(id, payload.ip);
+    writeAudit(request.user!.username, "players.ip_ban.remove", "server", id, payload);
+    return { bannedIps };
+  });
+
   app.get("/servers/:id/preflight", { preHandler: [authenticate] }, async (request) => {
     const { id } = request.params as { id: string };
     const server = store.getServerById(id);
@@ -2230,6 +2605,133 @@ export async function registerApiRoutes(
     return { ok: true, restore };
   });
 
+  app.get("/servers/:id/cloud-backup-destinations", { preHandler: [authenticate] }, async (request) => {
+    const { id } = request.params as { id: string };
+    if (!store.getServerById(id)) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+    const destinations = deps.backup.listCloudDestinations(id).map(sanitizeCloudDestination);
+    return { destinations };
+  });
+
+  app.post("/servers/:id/cloud-backup-destinations", { preHandler: [authenticate, requireRole("admin")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const payload = cloudDestinationSchema.parse(request.body ?? {});
+    const destination = deps.backup.createCloudDestination({
+      serverId: id,
+      provider: payload.provider,
+      name: payload.name,
+      encryptionPassphrase: payload.encryptionPassphrase,
+      enabled: payload.enabled,
+      config: payload.config
+    });
+    writeAudit(request.user!.username, "backup.cloud_destination.create", "server", id, {
+      provider: payload.provider,
+      destinationId: destination.id
+    });
+    return { destination: sanitizeCloudDestination(destination) };
+  });
+
+  app.put(
+    "/servers/:id/cloud-backup-destinations/:destinationId",
+    { preHandler: [authenticate, requireRole("admin")] },
+    async (request) => {
+      const { id, destinationId } = request.params as { id: string; destinationId: string };
+      const payload = cloudDestinationUpdateSchema.parse(request.body ?? {});
+      const current = store.getCloudBackupDestination(destinationId);
+      if (!current || current.serverId !== id) {
+        throw app.httpErrors.notFound("Cloud destination not found for server");
+      }
+      const updated = deps.backup.updateCloudDestination(destinationId, {
+        name: payload.name,
+        encryptionPassphrase: payload.encryptionPassphrase,
+        enabled: payload.enabled,
+        config: payload.config
+      });
+      if (!updated) {
+        throw app.httpErrors.notFound("Cloud destination not found");
+      }
+      writeAudit(request.user!.username, "backup.cloud_destination.update", "cloud_destination", destinationId, {
+        serverId: id
+      });
+      return { destination: sanitizeCloudDestination(updated) };
+    }
+  );
+
+  app.delete(
+    "/servers/:id/cloud-backup-destinations/:destinationId",
+    { preHandler: [authenticate, requireRole("admin")] },
+    async (request) => {
+      const { id, destinationId } = request.params as { id: string; destinationId: string };
+      const destination = store.getCloudBackupDestination(destinationId);
+      if (!destination || destination.serverId !== id) {
+        throw app.httpErrors.notFound("Cloud destination not found for server");
+      }
+      deps.backup.deleteCloudDestination(destinationId);
+      writeAudit(request.user!.username, "backup.cloud_destination.delete", "cloud_destination", destinationId, {
+        serverId: id
+      });
+      return { ok: true };
+    }
+  );
+
+  app.get("/servers/:id/cloud-backups", { preHandler: [authenticate] }, async (request) => {
+    const { id } = request.params as { id: string };
+    if (!store.getServerById(id)) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+    return {
+      artifacts: deps.backup.listCloudArtifacts(id)
+    };
+  });
+
+  app.post(
+    "/servers/:id/backups/:backupId/upload-cloud",
+    { preHandler: [authenticate, requireRole("moderator")] },
+    async (request) => {
+      const { id, backupId } = request.params as { id: string; backupId: string };
+      const payload = uploadCloudBackupSchema.parse(request.body ?? {});
+      const upload = await deps.backup.uploadBackupToCloud({
+        serverId: id,
+        backupId,
+        destinationId: payload.destinationId
+      });
+      writeAudit(request.user!.username, "backup.cloud_upload", "backup", backupId, {
+        serverId: id,
+        destinationId: payload.destinationId,
+        artifactId: upload.artifactId
+      });
+      return { upload };
+    }
+  );
+
+  app.post(
+    "/servers/:id/cloud-backups/:artifactId/restore",
+    { preHandler: [authenticate, requireRole("admin")] },
+    async (request, reply) => {
+      const { id, artifactId } = request.params as { id: string; artifactId: string };
+      const server = store.getServerById(id);
+      if (!server) {
+        throw app.httpErrors.notFound("Server not found");
+      }
+
+      if (deps.runtime.isRunning(id) || server.status === "running" || server.status === "starting") {
+        const errorMessage = "Server must be stopped before restoring a cloud backup";
+        return reply.code(409).send({
+          code: "server_running_restore_blocked",
+          message: errorMessage,
+          error: errorMessage
+        });
+      }
+
+      const restore = await deps.backup.restoreCloudArtifact(id, artifactId);
+      writeAudit(request.user!.username, "backup.cloud_restore", "cloud_backup_artifact", artifactId, {
+        serverId: id
+      });
+      return { ok: true, restore };
+    }
+  );
+
   app.post("/servers/:id/public-hosting/quick-enable", { preHandler: [authenticate, requireRole("admin")] }, async (request) => {
     const { id } = request.params as { id: string };
     const payload = quickPublicHostingSchema.parse(request.body ?? {});
@@ -2591,6 +3093,36 @@ export async function registerApiRoutes(
     return { logs: store.listAudit(300) };
   });
 
+  app.get("/audit/export", { preHandler: [authenticate, requireRole("admin")] }, async (request, reply) => {
+    const query = auditExportQuerySchema.parse(request.query ?? {});
+    const logs = store.listAudit(query.limit);
+
+    if (query.format === "csv") {
+      const header = "id,actor,action,targetType,targetId,createdAt,payload\n";
+      const rows = logs.map((entry) =>
+        [
+          entry.id,
+          entry.actor,
+          entry.action,
+          entry.targetType,
+          entry.targetId,
+          entry.createdAt,
+          JSON.stringify(entry.payload).replaceAll('"', '""')
+        ]
+          .map((value) => `"${String(value).replaceAll('"', '""')}"`)
+          .join(",")
+      );
+      reply.header("content-type", "text/csv; charset=utf-8");
+      return `${header}${rows.join("\n")}\n`;
+    }
+
+    return {
+      exportedAt: new Date().toISOString(),
+      total: logs.length,
+      logs
+    };
+  });
+
   app.post("/telemetry/events", { preHandler: [authenticate] }, async (request) => {
     const payload = telemetryEventSchema.parse(request.body ?? {});
     const event = store.createUxTelemetryEvent({
@@ -2796,11 +3328,188 @@ export async function registerApiRoutes(
     }
   );
 
+  app.post("/servers/:id/modpack/plan", { preHandler: [authenticate, requireRole("admin")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const payload = modpackPlanSchema.parse(request.body ?? {});
+    const server = store.getServerById(id);
+    if (!server) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+
+    const installed = deps.content.listInstalled(id);
+    const conflicts: Array<{ level: "warning" | "critical"; code: string; message: string; recommendation: string }> = [];
+
+    if (server.type === "paper" && installed.some((pkg) => pkg.kind === "plugin")) {
+      conflicts.push({
+        level: "warning",
+        code: "paper_plugins_present",
+        message: "This server already has Paper plugins installed.",
+        recommendation: "Review plugin compatibility before importing a modpack."
+      });
+    }
+
+    const loaderMismatch = installed.filter(
+      (pkg) => pkg.kind === "mod" && pkg.loader && !pkg.loader.toLowerCase().includes(server.type.toLowerCase())
+    );
+    if (loaderMismatch.length > 0) {
+      conflicts.push({
+        level: "critical",
+        code: "existing_loader_mismatch",
+        message: `${loaderMismatch.length} installed mods target a different loader than the selected server type.`,
+        recommendation: "Switch loader or remove incompatible mods before continuing."
+      });
+    }
+
+    return {
+      provider: payload.provider,
+      projectId: payload.projectId,
+      requestedVersionId: payload.requestedVersionId ?? null,
+      conflicts,
+      rollbackPlan: {
+        strategy: "create_backup_before_apply",
+        automaticBackup: true,
+        rollbackEndpoint: `/servers/${id}/modpack/rollback`
+      },
+      safeToApply: conflicts.every((entry) => entry.level !== "critical")
+    };
+  });
+
+  app.post("/servers/:id/modpack/import", { preHandler: [authenticate, requireRole("admin")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const payload = modpackPlanSchema.parse(request.body ?? {});
+    if (!store.getServerById(id)) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+
+    const preChangeBackup = await deps.backup.createBackup(id);
+    const install = await deps.content.installPackage({
+      serverId: id,
+      provider: payload.provider,
+      projectId: payload.projectId,
+      requestedVersionId: payload.requestedVersionId,
+      kind: "modpack"
+    });
+
+    const rollback = store.createModpackRollback({
+      serverId: id,
+      packageId: install.packageId,
+      backupId: preChangeBackup.backupId,
+      reason: "modpack_import"
+    });
+    writeAudit(request.user!.username, "modpack.import", "server", id, {
+      provider: payload.provider,
+      projectId: payload.projectId,
+      rollbackId: rollback.id
+    });
+    return {
+      install,
+      rollback
+    };
+  });
+
+  app.post(
+    "/servers/:id/modpack/:packageId/update",
+    { preHandler: [authenticate, requireRole("admin")] },
+    async (request) => {
+      const { id, packageId } = request.params as { id: string; packageId: string };
+      if (!store.getServerById(id)) {
+        throw app.httpErrors.notFound("Server not found");
+      }
+      const preChangeBackup = await deps.backup.createBackup(id);
+      const update = await deps.content.updateInstalledPackage(id, packageId);
+      const rollback = store.createModpackRollback({
+        serverId: id,
+        packageId,
+        backupId: preChangeBackup.backupId,
+        reason: "modpack_update"
+      });
+      writeAudit(request.user!.username, "modpack.update", "server_package", packageId, {
+        serverId: id,
+        rollbackId: rollback.id
+      });
+      return {
+        update,
+        rollback
+      };
+    }
+  );
+
+  app.get("/servers/:id/modpack/rollbacks", { preHandler: [authenticate] }, async (request) => {
+    const { id } = request.params as { id: string };
+    if (!store.getServerById(id)) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+    return {
+      rollbacks: store.listModpackRollbacks(id, 120)
+    };
+  });
+
+  app.post("/servers/:id/modpack/rollback", { preHandler: [authenticate, requireRole("admin")] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const payload = modpackRollbackSchema.parse(request.body ?? {});
+    const server = store.getServerById(id);
+    if (!server) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+    if (deps.runtime.isRunning(id) || server.status === "running" || server.status === "starting") {
+      const errorMessage = "Server must be stopped before rollback";
+      return reply.code(409).send({
+        code: "server_running_restore_blocked",
+        message: errorMessage,
+        error: errorMessage
+      });
+    }
+    const rollback = store.getModpackRollback(payload.rollbackId);
+    if (!rollback || rollback.serverId !== id) {
+      throw app.httpErrors.notFound("Rollback plan not found for this server");
+    }
+    const restore = await deps.backup.restoreBackup(id, rollback.backupId);
+    writeAudit(request.user!.username, "modpack.rollback", "server", id, {
+      rollbackId: rollback.id
+    });
+    return {
+      ok: true,
+      rollback,
+      restore
+    };
+  });
+
   app.delete("/servers/:id/packages/:packageId", { preHandler: [authenticate, requireRole("admin")] }, async (request) => {
     const { id, packageId } = request.params as { id: string; packageId: string };
     deps.content.uninstallPackage(id, packageId);
     writeAudit(request.user!.username, "package.uninstall", "server_package", packageId, { serverId: id });
     return { ok: true };
+  });
+
+  app.get("/migration/imports", { preHandler: [authenticate, requireRole("admin")] }, async () => {
+    return {
+      imports: deps.migration.listRecentImports(120)
+    };
+  });
+
+  app.post("/migration/import/manual", { preHandler: [authenticate, requireRole("admin")] }, async (request) => {
+    const payload = migrationManualSchema.parse(request.body ?? {});
+    const imported = deps.migration.importManual(payload);
+    writeAudit(request.user!.username, "migration.manual.import", "server", imported.serverId, {
+      source: "manual",
+      rootPath: payload.rootPath
+    });
+    return {
+      imported
+    };
+  });
+
+  app.post("/migration/import/squidservers", { preHandler: [authenticate, requireRole("admin")] }, async (request) => {
+    const payload = migrationSquidSchema.parse(request.body ?? {});
+    const outcome = deps.migration.importSquidServersManifest({
+      manifestPath: payload.manifestPath,
+      javaPath: payload.javaPath
+    });
+    writeAudit(request.user!.username, "migration.squidservers.import", "system", "migration", {
+      imported: outcome.imported.length,
+      failed: outcome.failed.length
+    });
+    return outcome;
   });
 
   app.get("/servers/:id/crash-reports", { preHandler: [authenticate] }, async (request) => {

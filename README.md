@@ -4,10 +4,10 @@ SimpleServers is an open-source, local-first Minecraft server hosting and admini
 
 It is designed as a stronger open alternative to closed desktop hosts: fast setup, safer operations, and richer owner tooling.
 
-Latest stable desktop release: `v0.5.2`
+Latest stable desktop release: `v0.5.3`
 
 - Releases: `https://github.com/dueldev/SimpleServers/releases`
-- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.5.2`
+- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.5.3`
 
 ## Production Features
 
@@ -17,10 +17,13 @@ Latest stable desktop release: `v0.5.2`
 - Live WebSocket console plus preflight startup diagnostics.
 - File editor with config diff preview.
 - Backups, pre-restore safety snapshots, retention policies, and prune jobs.
+- Cloud backup destinations (`S3`, `Backblaze B2 S3`, `Google Drive`) with encrypted upload and restore verification.
 - Alerts for crash, memory, CPU, and disk conditions.
 - Managed Java runtime bootstrap for first-run provisioning without local Java setup.
 - Hardware-aware quick-start memory sizing and GC-tuned JVM launch flags for better cross-platform efficiency.
 - Content manager with Modrinth and CurseForge search/install/update flows.
+- One-click modpack plan/import/update/rollback workflow with conflict detection and rollback checkpoints.
+- First-class player admin UI for ops, whitelist, bans, known players, and action/runtime history.
 - Multi-user management with owner token rotation workflows.
 - Remote-control mode with hardened non-local access defaults.
 - Structured crash bundles for postmortem/debug workflows.
@@ -42,6 +45,9 @@ Latest stable desktop release: `v0.5.2`
 - Multi-server bulk operations for lifecycle, backups, and one-click `Go Live` across selected servers.
 - Per-server Performance Advisor with RAM/CPU trend snapshots, tick-lag detection, startup trend hints, and guided recommendations.
 - In-app Trust workspace with signed-build status, security transparency controls, and verification link surface.
+- Trust workspace checksum verification and audit export (`JSON`/`CSV`) with attestation/SBOM visibility.
+- Reliability dashboard with startup success, crash rate, mean recovery time, tunnel uptime, and restore verification rates.
+- Migration tooling for manual server directories and SquidServers manifests.
 - Quick Actions command palette (`Ctrl/Cmd + K` or `/`) for goal-first navigation and one-click operations.
 - Next Best Action panel in Overview with a single recommended step for non-technical operators.
 - Focus-vs-Full dashboard layout mode to keep beginner flows clean while preserving deep controls.
@@ -152,6 +158,8 @@ export SIMPLESERVERS_REMOTE_TOKEN='replace-this-too'
 - On first launch, the desktop app boots an embedded API and then loads the UI.
 - A startup screen is shown while services initialize.
 - The app writes startup diagnostics to a desktop log for fast triage.
+- `v0.5.2` ships an app-first beginner UX default (`Home/Create/Share/Fix`), adds aggregated beginner APIs (`/system/capabilities`, `/servers/:id/simple-status`, `/servers/:id/simple-fix`), and hardens refresh/error handling to reduce silent failures.
+- `v0.5.3` adds encrypted cloud backup destinations and restore verification, first-class player admin UI, modpack plan/import/rollback workflows, trust checksum+audit export tooling, reliability/hardening dashboards, migration import tooling, and server terminal command dispatch.
 - `v0.5.2` ships an app-first beginner UX default (`Home/Create/Share/Fix`), adds aggregated beginner APIs (`/system/capabilities`, `/servers/:id/simple-status`, `/servers/:id/simple-fix`), and hardens refresh/error handling to reduce silent failures.
 - `v0.5.1` fixes repeat Instant Launch naming collisions by auto-resolving duplicate server names and adds a live UI smoke test workflow (`npm run test:ui:live`) for desktop/mobile usability checks.
 - `v0.5.0` adds a major UX/functionality pass: focus layout mode, Playit secret setup flow, stronger endpoint matching, and simplified operator paths.

@@ -211,5 +211,109 @@ export function migrate(): void {
 
     CREATE INDEX IF NOT EXISTS idx_server_tick_lag_events_server_created
       ON server_tick_lag_events(server_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS cloud_backup_destinations (
+      id TEXT PRIMARY KEY,
+      server_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      name TEXT NOT NULL,
+      config_json TEXT NOT NULL,
+      encryption_passphrase TEXT NOT NULL,
+      enabled INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_cloud_backup_destinations_server_created
+      ON cloud_backup_destinations(server_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS cloud_backup_artifacts (
+      id TEXT PRIMARY KEY,
+      backup_id TEXT NOT NULL,
+      server_id TEXT NOT NULL,
+      destination_id TEXT NOT NULL,
+      remote_key TEXT NOT NULL,
+      checksum_sha256 TEXT NOT NULL,
+      encrypted INTEGER NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      metadata_json TEXT NOT NULL,
+      status TEXT NOT NULL,
+      uploaded_at TEXT NOT NULL,
+      FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE,
+      FOREIGN KEY(destination_id) REFERENCES cloud_backup_destinations(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_cloud_backup_artifacts_server_uploaded
+      ON cloud_backup_artifacts(server_id, uploaded_at DESC);
+
+    CREATE TABLE IF NOT EXISTS backup_restore_events (
+      id TEXT PRIMARY KEY,
+      server_id TEXT NOT NULL,
+      backup_id TEXT,
+      source TEXT NOT NULL,
+      success INTEGER NOT NULL,
+      verified INTEGER NOT NULL,
+      detail TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_backup_restore_events_server_created
+      ON backup_restore_events(server_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS tunnel_status_events (
+      id TEXT PRIMARY KEY,
+      tunnel_id TEXT NOT NULL,
+      server_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE,
+      FOREIGN KEY(tunnel_id) REFERENCES tunnels(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tunnel_status_events_tunnel_created
+      ON tunnel_status_events(tunnel_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS modpack_rollbacks (
+      id TEXT PRIMARY KEY,
+      server_id TEXT NOT NULL,
+      package_id TEXT,
+      backup_id TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_modpack_rollbacks_server_created
+      ON modpack_rollbacks(server_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS player_admin_events (
+      id TEXT PRIMARY KEY,
+      server_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_player_admin_events_server_created
+      ON player_admin_events(server_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS migration_imports (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      server_id TEXT,
+      name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_migration_imports_created
+      ON migration_imports(created_at DESC);
   `);
 }

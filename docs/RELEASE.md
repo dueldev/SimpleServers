@@ -95,6 +95,15 @@ Default log paths:
 
 ## Recent Release Notes
 
+- `v0.5.3`
+  - Added encrypted cloud backup destinations (`S3`, `Backblaze B2 S3`, `Google Drive`) plus cloud restore verification telemetry.
+  - Added first-class player administration API/UI flows for ops, whitelist, player/IP bans, and player history.
+  - Added explicit Bedrock strategy + quick-local hardening guidance endpoints (`/system/bedrock-strategy`, `/system/hardening-checklist`).
+  - Added modpack lifecycle endpoints for plan/import/update/rollback with conflict detection and safe rollback checkpoints.
+  - Expanded Trust workspace API with checksum verification, SBOM/attestation metadata, and audit export endpoint metadata.
+  - Added reliability dashboard endpoint (`/system/reliability`) and migration import endpoints (`/migration/import/manual`, `/migration/import/squidservers`, `/migration/imports`).
+  - Added terminal command dispatch endpoint (`POST /servers/:id/command`) and dashboard command execution UI.
+  - Expanded API integration + Playwright regression coverage for tunnels/backups/content/modpack/trust/terminal/beginner flows.
 - `v0.5.2`
   - Shipped app-first beginner UX default (`Home`, `Create`, `Share`, `Fix`) with advanced tooling moved behind explicit `Advanced Controls`.
   - Added beginner API capability/status/recovery endpoints (`/system/capabilities`, `/servers/:id/simple-status`, `/servers/:id/simple-fix`).

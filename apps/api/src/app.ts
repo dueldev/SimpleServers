@@ -17,6 +17,9 @@ import { JavaService } from "./services/java-service.js";
 import { PolicyService } from "./services/policy-service.js";
 import { PreflightService } from "./services/preflight-service.js";
 import { RemoteControlService } from "./services/remote-control-service.js";
+import { ReliabilityService } from "./services/reliability-service.js";
+import { PlayerAdminService } from "./services/player-admin-service.js";
+import { MigrationService } from "./services/migration-service.js";
 import { ServerRuntimeService } from "./services/server-runtime.js";
 import { ServerSetupService } from "./services/server-setup.js";
 import { TaskSchedulerService } from "./services/task-scheduler.js";
@@ -39,6 +42,9 @@ export type ApiServices = {
   backupRetention: BackupRetentionService;
   policy: PolicyService;
   remoteControl: RemoteControlService;
+  reliability: ReliabilityService;
+  playerAdmin: PlayerAdminService;
+  migration: MigrationService;
 };
 
 export type CreateApiAppResult = {
@@ -244,6 +250,9 @@ export async function createApiApp(options?: {
     alerts.createAlert(serverId, severity, kind, message);
   });
   const content = new ContentCatalogService();
+  const reliability = new ReliabilityService();
+  const playerAdmin = new PlayerAdminService();
+  const migration = new MigrationService();
 
   const services: ApiServices = {
     versions,
@@ -260,7 +269,10 @@ export async function createApiApp(options?: {
     crashReports,
     backupRetention,
     policy,
-    remoteControl
+    remoteControl,
+    reliability,
+    playerAdmin,
+    migration
   };
 
   await registerApiRoutes(app, services);

@@ -2,7 +2,22 @@
 
 ## Status
 
-Current stable milestone: `v0.5.2` (validated by local typecheck/tests/build/API+e2e+live UI smoke).
+Current stable milestone: `v0.5.3` (validated by local typecheck/tests/build/API+e2e+live UI smoke).
+
+## Implemented in v0.5.3
+
+- Added encrypted cloud backup destinations with provider support for `S3`, `Backblaze B2 (S3 API)`, and `Google Drive`.
+- Added cloud backup artifact restore path with checksum verification and persisted restore verification telemetry.
+- Added first-class player admin services/UI routes for ops, whitelist, player bans, IP bans, known players, and timeline history.
+- Added explicit Bedrock strategy endpoint (`/system/bedrock-strategy`) and surfaced one-click Java+Geyser/Floodgate crossplay limits.
+- Added quick-local onboarding hardening guide endpoint (`/system/hardening-checklist`) for post-first-launch security progression.
+- Added modpack workflow endpoints for planning conflict detection, import/update checkpoint creation, rollback listing, and rollback restore.
+- Expanded Trust workspace API surface with checksum verification (`/system/trust/verify-checksum`), SBOM/attestation metadata, and audit export metadata.
+- Added audit export endpoint (`/audit/export`) supporting `json` and `csv` formats.
+- Added reliability dashboard endpoint (`/system/reliability`) exposing startup success, crash rate, recovery time, tunnel uptime, and backup restore success.
+- Added migration tooling (`/migration/import/manual`, `/migration/import/squidservers`) plus migration history endpoint (`/migration/imports`).
+- Added first-class server terminal command dispatch endpoint (`POST /servers/:id/command`) and UI wiring.
+- Expanded regression coverage across API integration and Playwright dashboard flow for tunnels/backups/content/modpack/terminal/trust paths.
 
 ## Implemented in v0.5.2
 

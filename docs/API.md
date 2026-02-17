@@ -33,6 +33,10 @@ Error responses include:
 - `GET /system/status`
 - `GET /system/hardware`
 - `GET /system/trust`
+- `POST /system/trust/verify-checksum` (`admin`)
+- `GET /system/reliability?hours=<1-720>&serverId=<optional>`
+- `GET /system/bedrock-strategy`
+- `GET /system/hardening-checklist`
 - `GET /system/capabilities`
 
 `GET /setup/presets` returns the guided setup profiles:
@@ -121,6 +125,13 @@ Allowed files:
 - `GET /servers/:id/backups`
 - `POST /servers/:id/backups` (`moderator`)
 - `POST /servers/:id/backups/:backupId/restore` (`admin`, requires stopped server)
+- `GET /servers/:id/cloud-backup-destinations`
+- `POST /servers/:id/cloud-backup-destinations` (`admin`)
+- `PUT /servers/:id/cloud-backup-destinations/:destinationId` (`admin`)
+- `DELETE /servers/:id/cloud-backup-destinations/:destinationId` (`admin`)
+- `GET /servers/:id/cloud-backups`
+- `POST /servers/:id/backups/:backupId/upload-cloud` (`moderator`)
+- `POST /servers/:id/cloud-backups/:artifactId/restore` (`admin`, requires stopped server)
 - `GET /servers/:id/backup-policy`
 - `PUT /servers/:id/backup-policy` (`admin`)
 - `POST /servers/:id/backup-policy/prune-now` (`admin`)
@@ -129,6 +140,19 @@ Restore notes:
 
 - `POST /servers/:id/backups/:backupId/restore` always creates a pre-restore safety snapshot first.
 - Restore response includes `restore.preRestoreBackupId` so UI flows can surface rollback checkpoints.
+- Cloud uploads encrypt archives before transfer; cloud restore verifies archive/checksum before replacement.
+
+## Player Administration
+
+- `GET /servers/:id/player-admin?limit=<1-400>`
+- `POST /servers/:id/players/op` (`moderator`)
+- `POST /servers/:id/players/op/remove` (`moderator`)
+- `POST /servers/:id/players/whitelist` (`moderator`)
+- `POST /servers/:id/players/whitelist/remove` (`moderator`)
+- `POST /servers/:id/players/ban` (`moderator`)
+- `POST /servers/:id/players/unban` (`moderator`)
+- `POST /servers/:id/players/ban-ip` (`moderator`)
+- `POST /servers/:id/players/unban-ip` (`moderator`)
 
 ## Quick Public Hosting
 
@@ -166,6 +190,7 @@ Notes:
 ## Audit (`admin`)
 
 - `GET /audit`
+- `GET /audit/export?format=<json|csv>&limit=<1-5000>`
 
 ## UX Telemetry
 
@@ -199,6 +224,20 @@ Providers:
 - `POST /servers/:id/packages/install` (`admin`)
 - `POST /servers/:id/packages/:packageId/update` (`admin`)
 - `DELETE /servers/:id/packages/:packageId` (`admin`)
+
+## Modpack Workflows
+
+- `POST /servers/:id/modpack/plan` (`admin`)
+- `POST /servers/:id/modpack/import` (`admin`)
+- `POST /servers/:id/modpack/:packageId/update` (`admin`)
+- `GET /servers/:id/modpack/rollbacks`
+- `POST /servers/:id/modpack/rollback` (`admin`, requires stopped server)
+
+## Migration Imports (`admin`)
+
+- `GET /migration/imports`
+- `POST /migration/import/manual`
+- `POST /migration/import/squidservers`
 
 ## Crash Reports
 

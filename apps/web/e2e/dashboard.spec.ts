@@ -7,6 +7,11 @@ test("connects and renders dashboard sections", async ({ page }) => {
   let stopUsedEmptyJsonHeader = false;
   let telemetryPosted = false;
   let bulkCalled = false;
+  let commandCalled = false;
+  let cloudDestinationSaved = false;
+  let cloudUploadCalled = false;
+  let modpackPlanCalled = false;
+  let modpackImportCalled = false;
 
   await page.route("http://127.0.0.1:4010/**", async (route) => {
     const request = route.request();
@@ -205,7 +210,80 @@ test("connects and renders dashboard sections", async ({ page }) => {
     }
 
     if (pathname === "/servers/srv_1/backups" && method === "GET") {
-      await withJson(200, { backups: [] });
+      await withJson(200, {
+        backups: [
+          {
+            id: "bkp_1",
+            serverId: "srv_1",
+            filePath: "/tmp/bkp_1.tar.gz",
+            sizeBytes: 1024 * 1024 * 12,
+            createdAt: new Date().toISOString(),
+            restoredAt: null
+          }
+        ]
+      });
+      return;
+    }
+
+    if (pathname === "/servers/srv_1/cloud-backup-destinations" && method === "GET") {
+      await withJson(200, {
+        destinations: [
+          {
+            id: "dst_1",
+            serverId: "srv_1",
+            provider: "s3",
+            name: "Primary Cloud Backup",
+            enabled: 1,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            config: {
+              bucket: "test-bucket",
+              region: "us-east-1",
+              prefix: "simpleservers",
+              dryRun: true
+            }
+          }
+        ]
+      });
+      return;
+    }
+
+    if (pathname === "/servers/srv_1/cloud-backup-destinations" && method === "POST") {
+      cloudDestinationSaved = true;
+      await withJson(200, {
+        destination: {
+          id: "dst_2",
+          serverId: "srv_1",
+          provider: "s3",
+          name: "Primary Cloud Backup",
+          enabled: 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          config: {
+            bucket: "test-bucket",
+            region: "us-east-1",
+            prefix: "simpleservers",
+            dryRun: true
+          }
+        }
+      });
+      return;
+    }
+
+    if (pathname === "/servers/srv_1/backups/bkp_1/upload-cloud" && method === "POST") {
+      cloudUploadCalled = true;
+      await withJson(200, {
+        upload: {
+          artifactId: "cba_1"
+        }
+      });
+      return;
+    }
+
+    if (pathname === "/servers/srv_1/cloud-backups" && method === "GET") {
+      await withJson(200, {
+        artifacts: []
+      });
       return;
     }
 
@@ -380,6 +458,66 @@ test("connects and renders dashboard sections", async ({ page }) => {
       return;
     }
 
+    if (pathname === "/servers/srv_1/player-admin" && method === "GET") {
+      await withJson(200, {
+        state: {
+          ops: [],
+          whitelist: [],
+          bannedPlayers: [],
+          bannedIps: [],
+          knownPlayers: [],
+          history: []
+        }
+      });
+      return;
+    }
+
+    if (pathname === "/servers/srv_1/command" && method === "POST") {
+      commandCalled = true;
+      await withJson(200, { ok: true });
+      return;
+    }
+
+    if (pathname === "/servers/srv_1/modpack/rollbacks" && method === "GET") {
+      await withJson(200, { rollbacks: [] });
+      return;
+    }
+
+    if (pathname === "/servers/srv_1/modpack/plan" && method === "POST") {
+      modpackPlanCalled = true;
+      await withJson(200, {
+        provider: "modrinth",
+        projectId: "modpack-demo",
+        requestedVersionId: null,
+        conflicts: [],
+        rollbackPlan: {
+          strategy: "create_backup_before_apply",
+          automaticBackup: true,
+          rollbackEndpoint: "/servers/srv_1/modpack/rollback"
+        },
+        safeToApply: true
+      });
+      return;
+    }
+
+    if (pathname === "/servers/srv_1/modpack/import" && method === "POST") {
+      modpackImportCalled = true;
+      await withJson(200, {
+        install: {
+          packageId: "pkg_modpack_1"
+        },
+        rollback: {
+          id: "mrb_1",
+          serverId: "srv_1",
+          packageId: "pkg_modpack_1",
+          backupId: "bkp_1",
+          reason: "modpack_import",
+          createdAt: new Date().toISOString()
+        }
+      });
+      return;
+    }
+
     if (pathname === "/servers/srv_1/go-live" && method === "POST") {
       await withJson(200, {
         ok: true,
@@ -528,7 +666,7 @@ test("connects and renders dashboard sections", async ({ page }) => {
       await withJson(200, {
         generatedAt: new Date().toISOString(),
         build: {
-          appVersion: "0.5.2",
+          appVersion: "0.5.3",
           platform: "darwin",
           arch: "arm64",
           nodeVersion: "v20.0.0",
@@ -536,11 +674,23 @@ test("connects and renders dashboard sections", async ({ page }) => {
           signatureStatus: "development",
           signatureProvider: null,
           releaseChannel: "stable",
-          repository: "https://github.com/dueldev/SimpleServers"
+          repository: "https://github.com/dueldev/SimpleServers",
+          signedRelease: false,
+          signingMethod: null
         },
         verification: {
           checksumUrl: null,
-          attestationUrl: null
+          attestationUrl: null,
+          sbomUrl: null,
+          checksumVerificationEnabled: false
+        },
+        attestations: {
+          predicateType: "https://slsa.dev/provenance/v1",
+          issuer: null
+        },
+        exports: {
+          auditExportFormats: ["json", "csv"],
+          auditExportEndpoint: "/audit/export"
         },
         security: {
           localOnlyByDefault: true,
@@ -570,6 +720,134 @@ test("connects and renders dashboard sections", async ({ page }) => {
           startFromCreatePct: 100,
           publicReadyFromStartPct: 0
         }
+      });
+      return;
+    }
+
+    if (pathname === "/system/reliability" && method === "GET") {
+      await withJson(200, {
+        generatedAt: new Date().toISOString(),
+        windowHours: 168,
+        scope: {
+          serverId: null,
+          servers: 1
+        },
+        startup: {
+          total: 10,
+          success: 9,
+          failed: 1,
+          successRatePct: 90
+        },
+        crashes: {
+          total: 1,
+          crashRatePer100Starts: 10
+        },
+        recovery: {
+          measuredEvents: 1,
+          meanRecoveryTimeMs: 120000,
+          meanRecoveryTimeMinutes: 2
+        },
+        tunnels: {
+          tracked: 1,
+          uptimePct: 98.1,
+          details: [
+            {
+              tunnelId: "tnl_1",
+              serverId: "srv_1",
+              provider: "playit",
+              uptimePct: 98.1
+            }
+          ]
+        },
+        backups: {
+          restoreAttempts: 2,
+          restoreSuccess: 2,
+          restoreSuccessRatePct: 100,
+          verifiedSuccessRatePct: 100
+        }
+      });
+      return;
+    }
+
+    if (pathname === "/system/hardening-checklist" && method === "GET") {
+      await withJson(200, {
+        quickLocalMode: {
+          enabled: true,
+          description: "Start local first, then apply hardening.",
+          firstSuccessfulLaunchAt: new Date(Date.now() - 5 * 60 * 1000).toISOString()
+        },
+        hardeningSteps: [
+          {
+            id: "rotate_owner_token",
+            title: "Rotate default owner token",
+            done: true,
+            detail: "Owner token has been rotated."
+          },
+          {
+            id: "configure_cloud_backup_destination",
+            title: "Configure encrypted cloud backup destination",
+            done: false,
+            detail: "No cloud destination configured yet."
+          }
+        ]
+      });
+      return;
+    }
+
+    if (pathname === "/system/bedrock-strategy" && method === "GET") {
+      await withJson(200, {
+        selectedStrategy: "java_geyser_floodgate_crossplay",
+        nativeBedrockSupport: false,
+        oneClickCrossplay: {
+          available: true,
+          serverType: "paper",
+          toggles: {
+            enableGeyser: true,
+            enableFloodgate: true
+          },
+          limits: [
+            "Requires Java Edition server runtime (Paper).",
+            "Some Java-only plugins/mods can break Bedrock parity."
+          ]
+        },
+        recommendation: "Use Paper + Geyser + Floodgate one-click crossplay for mixed Java/Bedrock players."
+      });
+      return;
+    }
+
+    if (pathname === "/migration/imports" && method === "GET") {
+      await withJson(200, { imports: [] });
+      return;
+    }
+
+    if (pathname === "/system/trust/verify-checksum" && method === "POST") {
+      await withJson(200, {
+        filePath: "/tmp/example",
+        sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        matchesExpected: true
+      });
+      return;
+    }
+
+    if (pathname === "/audit/export" && method === "GET") {
+      const format = url.searchParams.get("format");
+      if (format === "csv") {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/csv; charset=utf-8",
+          body: "id,actor,action\n1,owner,test\n",
+          headers: {
+            "access-control-allow-origin": "*",
+            "access-control-allow-headers": "*",
+            "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS"
+          }
+        });
+        return;
+      }
+      await withJson(200, {
+        exportedAt: new Date().toISOString(),
+        total: 1,
+        logs: []
       });
       return;
     }
@@ -702,14 +980,37 @@ test("connects and renders dashboard sections", async ({ page }) => {
   await nav.getByRole("button", { name: "Content" }).click();
   await page.getByRole("button", { name: "Search" }).click();
   await expect(page.getByText("Sodium")).toBeVisible();
+  await page.getByLabel("Modpack Project ID").fill("modpack-demo");
+  await page.getByRole("button", { name: "Plan Import" }).click();
+  await expect.poll(() => modpackPlanCalled).toBe(true);
+  await page.getByRole("button", { name: "Import with Rollback" }).click();
+  await expect.poll(() => modpackImportCalled).toBe(true);
 
   await page.getByRole("button", { name: "Quick Actions" }).click();
   await expect(page.getByRole("heading", { name: "Quick Actions" })).toBeVisible();
   await page.getByRole("button", { name: /Open Trust Workspace/i }).click();
   await expect(page.getByRole("heading", { name: "Security Transparency" })).toBeVisible();
 
+  await nav.getByRole("button", { name: "Fix" }).click();
+  await page.getByLabel("Server Terminal Command").fill("say e2e command");
+  await page.getByRole("button", { name: "Run Command" }).click();
+  await expect.poll(() => commandCalled).toBe(true);
+  await page.getByLabel("Encryption Passphrase").fill("this-is-a-test-passphrase");
+  await page.getByRole("button", { name: "Add Destination" }).click();
+  await expect.poll(() => cloudDestinationSaved).toBe(true);
+  await page.getByRole("button", { name: /Upload -> Primary Cloud Backup/ }).first().click();
+  await expect.poll(() => cloudUploadCalled).toBe(true);
+
   await nav.getByRole("button", { name: "Trust" }).click();
   await expect(page.getByRole("heading", { name: "Security Transparency" })).toBeVisible();
+  await page.getByLabel("Local File Path").fill("/tmp/example");
+  await page
+    .getByLabel("Expected SHA-256 (optional)")
+    .fill("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+  await page.getByRole("button", { name: "Verify Checksum" }).click();
+  await expect(page.getByText("Match")).toBeVisible();
+  await page.getByRole("button", { name: "Export JSON" }).click();
+
   await nav.getByRole("button", { name: "Content" }).click();
 
   await page.getByRole("button", { name: "Install" }).click();

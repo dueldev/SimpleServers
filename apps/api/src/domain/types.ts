@@ -13,6 +13,7 @@ export type TunnelProtocol = "tcp" | "udp";
 export type TaskAction = "restart" | "backup" | "command";
 export type ContentProvider = "modrinth" | "curseforge";
 export type PackageKind = "mod" | "plugin" | "modpack" | "resourcepack";
+export type CloudBackupProvider = "s3" | "backblaze" | "google_drive";
 
 export type ServerRecord = {
   id: string;
@@ -176,5 +177,79 @@ export type ServerTickLagEventRecord = {
   lagMs: number;
   ticksBehind: number;
   line: string;
+  createdAt: string;
+};
+
+export type CloudBackupDestinationRecord = {
+  id: string;
+  serverId: string;
+  provider: CloudBackupProvider;
+  name: string;
+  configJson: string;
+  encryptionPassphrase: string;
+  enabled: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CloudBackupArtifactRecord = {
+  id: string;
+  backupId: string;
+  serverId: string;
+  destinationId: string;
+  remoteKey: string;
+  checksumSha256: string;
+  encrypted: number;
+  sizeBytes: number;
+  metadataJson: string;
+  status: string;
+  uploadedAt: string;
+};
+
+export type BackupRestoreEventRecord = {
+  id: string;
+  serverId: string;
+  backupId: string | null;
+  source: "local" | "cloud";
+  success: number;
+  verified: number;
+  detail: string;
+  durationMs: number;
+  createdAt: string;
+};
+
+export type TunnelStatusEventRecord = {
+  id: string;
+  tunnelId: string;
+  serverId: string;
+  status: string;
+  createdAt: string;
+};
+
+export type ModpackRollbackRecord = {
+  id: string;
+  serverId: string;
+  packageId: string | null;
+  backupId: string;
+  reason: string;
+  createdAt: string;
+};
+
+export type PlayerAdminEventRecord = {
+  id: string;
+  serverId: string;
+  kind: string;
+  subject: string;
+  detail: string;
+  createdAt: string;
+};
+
+export type MigrationImportRecord = {
+  id: string;
+  source: string;
+  serverId: string | null;
+  name: string;
+  status: string;
+  detail: string;
   createdAt: string;
 };

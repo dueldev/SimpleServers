@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { ApiServices } from "../src/app.js";
@@ -91,9 +92,358 @@ describe("api integration", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().build.appVersion).toBe("0.5.2");
+    expect(response.json().build.appVersion).toBe("0.5.3");
     expect(response.json().security.localOnlyByDefault).toBe(true);
     expect(response.json().security.authModel).toBe("token-rbac");
+    expect(response.json().exports.auditExportEndpoint).toBe("/audit/export");
+    expect(response.json().verification).toHaveProperty("sbomUrl");
+  });
+
+  it("verifies local file checksum through trust endpoint", async () => {
+    const targetPath = path.join(testDataDir, "checksum-target.txt");
+    fs.writeFileSync(targetPath, "checksum-target", "utf8");
+    const expectedSha256 = crypto.createHash("sha256").update("checksum-target").digest("hex");
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/system/trust/verify-checksum",
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {
+        filePath: targetPath,
+        expectedSha256
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().sha256).toBe(expectedSha256);
+    expect(response.json().matchesExpected).toBe(true);
+  });
+
+  it("returns reliability, hardening, and bedrock strategy payloads", async () => {
+    const [reliability, hardening, bedrock] = await Promise.all([
+      app.inject({
+        method: "GET",
+        url: "/system/reliability?hours=24",
+        headers: {
+          "x-api-token": "test-owner-token"
+        }
+      }),
+      app.inject({
+        method: "GET",
+        url: "/system/hardening-checklist",
+        headers: {
+          "x-api-token": "test-owner-token"
+        }
+      }),
+      app.inject({
+        method: "GET",
+        url: "/system/bedrock-strategy",
+        headers: {
+          "x-api-token": "test-owner-token"
+        }
+      })
+    ]);
+
+    expect(reliability.statusCode).toBe(200);
+    expect(reliability.json().startup).toBeDefined();
+    expect(reliability.json().backups).toBeDefined();
+    expect(hardening.statusCode).toBe(200);
+    expect(Array.isArray(hardening.json().hardeningSteps)).toBe(true);
+    expect(bedrock.statusCode).toBe(200);
+    expect(bedrock.json().selectedStrategy).toContain("crossplay");
+  });
+
+  it("exports audit entries in json and csv formats", async () => {
+    const jsonResponse = await app.inject({
+      method: "GET",
+      url: "/audit/export?format=json&limit=20",
+      headers: {
+        "x-api-token": "test-owner-token"
+      }
+    });
+    expect(jsonResponse.statusCode).toBe(200);
+    expect(jsonResponse.json()).toHaveProperty("logs");
+
+    const csvResponse = await app.inject({
+      method: "GET",
+      url: "/audit/export?format=csv&limit=20",
+      headers: {
+        "x-api-token": "test-owner-token"
+      }
+    });
+    expect(csvResponse.statusCode).toBe(200);
+    expect(csvResponse.headers["content-type"]).toContain("text/csv");
+    expect(csvResponse.body).toContain("actor");
+  });
+
+  it("creates encrypted cloud backup destinations and uploads/restores via dry-run storage", async () => {
+    const serverRoot = path.join(testDataDir, "servers", "cloud-backup-server");
+    fs.mkdirSync(serverRoot, { recursive: true });
+    fs.writeFileSync(path.join(serverRoot, "server.properties"), "motd=cloud-before\n", "utf8");
+    fs.writeFileSync(path.join(serverRoot, "server.jar"), "placeholder", "utf8");
+    fs.writeFileSync(path.join(serverRoot, "eula.txt"), "eula=true\n", "utf8");
+
+    const server = store.createServer({
+      name: "cloud-backup-server",
+      type: "paper",
+      mcVersion: "1.21.11",
+      jarPath: path.join(serverRoot, "server.jar"),
+      rootPath: serverRoot,
+      javaPath: "java",
+      port: 25618,
+      bedrockPort: null,
+      minMemoryMb: 1024,
+      maxMemoryMb: 2048
+    });
+
+    const backupResponse = await app.inject({
+      method: "POST",
+      url: `/servers/${server.id}/backups`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      }
+    });
+    expect(backupResponse.statusCode).toBe(200);
+    const backupId = backupResponse.json().backup.backupId as string;
+
+    const destinationResponse = await app.inject({
+      method: "POST",
+      url: `/servers/${server.id}/cloud-backup-destinations`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {
+        provider: "s3",
+        name: "dry-run-s3",
+        encryptionPassphrase: "very-secure-passphrase",
+        enabled: true,
+        config: {
+          bucket: "dry-run-bucket",
+          region: "us-east-1",
+          accessKeyId: "dry-run-key",
+          secretAccessKey: "dry-run-secret",
+          prefix: "integration",
+          dryRun: true,
+          mockDir: path.join(testDataDir, "cloud-mock")
+        }
+      }
+    });
+    expect(destinationResponse.statusCode).toBe(200);
+    const destinationId = destinationResponse.json().destination.id as string;
+
+    fs.writeFileSync(path.join(serverRoot, "server.properties"), "motd=cloud-after\n", "utf8");
+
+    const uploadResponse = await app.inject({
+      method: "POST",
+      url: `/servers/${server.id}/backups/${backupId}/upload-cloud`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {
+        destinationId
+      }
+    });
+    expect(uploadResponse.statusCode).toBe(200);
+    const artifactId = uploadResponse.json().upload.artifactId as string;
+
+    const restoreResponse = await app.inject({
+      method: "POST",
+      url: `/servers/${server.id}/cloud-backups/${artifactId}/restore`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {}
+    });
+    expect(restoreResponse.statusCode).toBe(200);
+    expect(fs.readFileSync(path.join(serverRoot, "server.properties"), "utf8")).toContain("motd=cloud-before");
+  });
+
+  it("manages player admin state via first-class endpoints", async () => {
+    const serverRoot = path.join(testDataDir, "servers", "player-admin-server");
+    fs.mkdirSync(serverRoot, { recursive: true });
+    fs.writeFileSync(path.join(serverRoot, "server.jar"), "placeholder", "utf8");
+    const server = store.createServer({
+      name: "player-admin-server",
+      type: "paper",
+      mcVersion: "1.21.11",
+      jarPath: path.join(serverRoot, "server.jar"),
+      rootPath: serverRoot,
+      javaPath: "java",
+      port: 25619,
+      bedrockPort: null,
+      minMemoryMb: 1024,
+      maxMemoryMb: 2048
+    });
+
+    const opResponse = await app.inject({
+      method: "POST",
+      url: `/servers/${server.id}/players/op`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {
+        name: "Alice"
+      }
+    });
+    expect(opResponse.statusCode).toBe(200);
+
+    const whitelistResponse = await app.inject({
+      method: "POST",
+      url: `/servers/${server.id}/players/whitelist`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {
+        name: "Alice"
+      }
+    });
+    expect(whitelistResponse.statusCode).toBe(200);
+
+    const banIpResponse = await app.inject({
+      method: "POST",
+      url: `/servers/${server.id}/players/ban-ip`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {
+        ip: "203.0.113.10",
+        reason: "test"
+      }
+    });
+    expect(banIpResponse.statusCode).toBe(200);
+
+    const stateResponse = await app.inject({
+      method: "GET",
+      url: `/servers/${server.id}/player-admin?limit=100`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      }
+    });
+    expect(stateResponse.statusCode).toBe(200);
+    expect(stateResponse.json().state.ops.some((entry: { name: string }) => entry.name === "Alice")).toBe(true);
+    expect(stateResponse.json().state.whitelist.some((entry: { name: string }) => entry.name === "Alice")).toBe(true);
+    expect(stateResponse.json().state.bannedIps.some((entry: { ip: string }) => entry.ip === "203.0.113.10")).toBe(true);
+  });
+
+  it("supports modpack planning and rollback history endpoints", async () => {
+    const serverRoot = path.join(testDataDir, "servers", "modpack-plan-server");
+    fs.mkdirSync(serverRoot, { recursive: true });
+    fs.writeFileSync(path.join(serverRoot, "server.jar"), "placeholder", "utf8");
+    const server = store.createServer({
+      name: "modpack-plan-server",
+      type: "paper",
+      mcVersion: "1.21.11",
+      jarPath: path.join(serverRoot, "server.jar"),
+      rootPath: serverRoot,
+      javaPath: "java",
+      port: 25620,
+      bedrockPort: null,
+      minMemoryMb: 1024,
+      maxMemoryMb: 2048
+    });
+
+    const planResponse = await app.inject({
+      method: "POST",
+      url: `/servers/${server.id}/modpack/plan`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {
+        provider: "modrinth",
+        projectId: "demo-modpack"
+      }
+    });
+    expect(planResponse.statusCode).toBe(200);
+    expect(planResponse.json().rollbackPlan.rollbackEndpoint).toBe(`/servers/${server.id}/modpack/rollback`);
+
+    const rollbacksResponse = await app.inject({
+      method: "GET",
+      url: `/servers/${server.id}/modpack/rollbacks`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      }
+    });
+    expect(rollbacksResponse.statusCode).toBe(200);
+    expect(Array.isArray(rollbacksResponse.json().rollbacks)).toBe(true);
+  });
+
+  it("imports manual migration sources and reports import history", async () => {
+    const rootPath = path.join(testDataDir, "migration-manual-server");
+    fs.mkdirSync(rootPath, { recursive: true });
+    fs.writeFileSync(path.join(rootPath, "server.jar"), "placeholder", "utf8");
+
+    const importResponse = await app.inject({
+      method: "POST",
+      url: "/migration/import/manual",
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {
+        name: "manual-migration",
+        type: "paper",
+        mcVersion: "1.21.11",
+        rootPath,
+        port: 25621,
+        bedrockPort: 19132,
+        minMemoryMb: 1024,
+        maxMemoryMb: 4096
+      }
+    });
+    expect(importResponse.statusCode).toBe(200);
+    expect(importResponse.json().imported.serverId).toBeTruthy();
+
+    const listResponse = await app.inject({
+      method: "GET",
+      url: "/migration/imports",
+      headers: {
+        "x-api-token": "test-owner-token"
+      }
+    });
+    expect(listResponse.statusCode).toBe(200);
+    expect(listResponse.json().imports.some((entry: { source: string }) => entry.source === "manual")).toBe(true);
+  });
+
+  it("routes terminal command submissions to runtime command dispatcher", async () => {
+    const serverRoot = path.join(testDataDir, "servers", "command-server");
+    fs.mkdirSync(serverRoot, { recursive: true });
+    fs.writeFileSync(path.join(serverRoot, "server.jar"), "placeholder", "utf8");
+    const server = store.createServer({
+      name: "command-server",
+      type: "paper",
+      mcVersion: "1.21.11",
+      jarPath: path.join(serverRoot, "server.jar"),
+      rootPath: serverRoot,
+      javaPath: "java",
+      port: 25622,
+      bedrockPort: null,
+      minMemoryMb: 1024,
+      maxMemoryMb: 2048
+    });
+
+    const originalSendCommand = services.runtime.sendCommand.bind(services.runtime);
+    const seen: Array<{ serverId: string; command: string }> = [];
+    services.runtime.sendCommand = (serverId: string, command: string) => {
+      seen.push({ serverId, command });
+    };
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: `/servers/${server.id}/command`,
+        headers: {
+          "x-api-token": "test-owner-token"
+        },
+        payload: {
+          command: "say integration"
+        }
+      });
+      expect(response.statusCode).toBe(200);
+      expect(seen).toEqual([{ serverId: server.id, command: "say integration" }]);
+    } finally {
+      services.runtime.sendCommand = originalSendCommand;
+    }
   });
 
   it("returns guided setup presets", async () => {

@@ -231,6 +231,176 @@ type BackupPolicy = {
   enabled: number;
 };
 
+type CloudBackupDestination = {
+  id: string;
+  serverId: string;
+  provider: "s3" | "backblaze" | "google_drive";
+  name: string;
+  enabled: number;
+  createdAt: string;
+  updatedAt: string;
+  config: Record<string, unknown>;
+};
+
+type CloudBackupArtifact = {
+  id: string;
+  backupId: string;
+  serverId: string;
+  destinationId: string;
+  remoteKey: string;
+  checksumSha256: string;
+  encrypted: number;
+  sizeBytes: number;
+  metadataJson: string;
+  status: string;
+  uploadedAt: string;
+};
+
+type ReliabilityDashboard = {
+  generatedAt: string;
+  windowHours: number;
+  scope: {
+    serverId: string | null;
+    servers: number;
+  };
+  startup: {
+    total: number;
+    success: number;
+    failed: number;
+    successRatePct: number;
+  };
+  crashes: {
+    total: number;
+    crashRatePer100Starts: number;
+  };
+  recovery: {
+    measuredEvents: number;
+    meanRecoveryTimeMs: number | null;
+    meanRecoveryTimeMinutes: number | null;
+  };
+  tunnels: {
+    tracked: number;
+    uptimePct: number;
+    details: Array<{
+      tunnelId: string;
+      serverId: string;
+      provider: string;
+      uptimePct: number;
+    }>;
+  };
+  backups: {
+    restoreAttempts: number;
+    restoreSuccess: number;
+    restoreSuccessRatePct: number;
+    verifiedSuccessRatePct: number;
+  };
+};
+
+type BedrockStrategy = {
+  selectedStrategy: string;
+  nativeBedrockSupport: boolean;
+  oneClickCrossplay: {
+    available: boolean;
+    serverType: string;
+    toggles: {
+      enableGeyser: boolean;
+      enableFloodgate: boolean;
+    };
+    limits: string[];
+  };
+  recommendation: string;
+};
+
+type HardeningChecklist = {
+  quickLocalMode: {
+    enabled: boolean;
+    description: string;
+    firstSuccessfulLaunchAt: string | null;
+  };
+  hardeningSteps: Array<{
+    id: string;
+    title: string;
+    done: boolean;
+    detail: string;
+  }>;
+};
+
+type PlayerAdminState = {
+  ops: Array<{
+    uuid: string;
+    name: string;
+    level: number;
+    bypassesPlayerLimit: boolean;
+  }>;
+  whitelist: Array<{
+    uuid: string;
+    name: string;
+  }>;
+  bannedPlayers: Array<{
+    uuid: string;
+    name: string;
+    created: string;
+    source: string;
+    expires: string;
+    reason: string;
+  }>;
+  bannedIps: Array<{
+    ip: string;
+    created: string;
+    source: string;
+    expires: string;
+    reason: string;
+  }>;
+  knownPlayers: Array<{
+    name: string;
+    uuid: string;
+  }>;
+  history: Array<{
+    ts: string;
+    kind: string;
+    subject: string;
+    detail: string;
+    source: "admin" | "runtime";
+  }>;
+};
+
+type ModpackPlan = {
+  provider: "modrinth" | "curseforge";
+  projectId: string;
+  requestedVersionId: string | null;
+  conflicts: Array<{
+    level: "warning" | "critical";
+    code: string;
+    message: string;
+    recommendation: string;
+  }>;
+  rollbackPlan: {
+    strategy: string;
+    automaticBackup: boolean;
+    rollbackEndpoint: string;
+  };
+  safeToApply: boolean;
+};
+
+type ModpackRollback = {
+  id: string;
+  serverId: string;
+  packageId: string | null;
+  backupId: string;
+  reason: string;
+  createdAt: string;
+};
+
+type MigrationImportRecord = {
+  id: string;
+  source: string;
+  serverId: string | null;
+  name: string;
+  status: string;
+  detail: string;
+  createdAt: string;
+};
+
 type PreflightIssue = {
   code: string;
   severity: "info" | "warning" | "critical";
@@ -450,10 +620,22 @@ type TrustReport = {
     signatureProvider: string | null;
     releaseChannel: string;
     repository: string;
+    signedRelease?: boolean;
+    signingMethod?: string | null;
   };
   verification: {
     checksumUrl: string | null;
     attestationUrl: string | null;
+    sbomUrl?: string | null;
+    checksumVerificationEnabled?: boolean;
+  };
+  attestations?: {
+    predicateType: string;
+    issuer: string | null;
+  };
+  exports?: {
+    auditExportFormats: string[];
+    auditExportEndpoint: string;
   };
   security: {
     localOnlyByDefault: boolean;
@@ -739,6 +921,8 @@ export default function App() {
   const [contentResults, setContentResults] = useState<ContentSearchResult[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [backups, setBackups] = useState<BackupRecord[]>([]);
+  const [cloudBackupDestinations, setCloudBackupDestinations] = useState<CloudBackupDestination[]>([]);
+  const [cloudBackupArtifacts, setCloudBackupArtifacts] = useState<CloudBackupArtifact[]>([]);
   const [backupPolicy, setBackupPolicy] = useState<BackupPolicy | null>(null);
   const [preflight, setPreflight] = useState<PreflightReport | null>(null);
   const [crashReports, setCrashReports] = useState<CrashReport[]>([]);
@@ -756,6 +940,9 @@ export default function App() {
   const [audit, setAudit] = useState<Audit[]>([]);
   const [funnelMetrics, setFunnelMetrics] = useState<TelemetryFunnel | null>(null);
   const [status, setStatus] = useState<{ servers: { total: number; running: number; crashed: number }; alerts: { open: number; total: number } } | null>(null);
+  const [reliability, setReliability] = useState<ReliabilityDashboard | null>(null);
+  const [hardeningChecklist, setHardeningChecklist] = useState<HardeningChecklist | null>(null);
+  const [bedrockStrategy, setBedrockStrategy] = useState<BedrockStrategy | null>(null);
   const [catalog, setCatalog] = useState<VersionCatalog>({ vanilla: [], paper: [], fabric: [] });
   const [setupPresets, setSetupPresets] = useState<SetupPreset[]>(fallbackSetupPresets);
   const [hardware, setHardware] = useState<HardwareProfile | null>(null);
@@ -764,8 +951,15 @@ export default function App() {
 
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   const [logs, setLogs] = useState<Array<{ ts: string; line: string }>>([]);
+  const [terminalCommand, setTerminalCommand] = useState("");
+  const [sendingTerminalCommand, setSendingTerminalCommand] = useState(false);
   const [liveConsole, setLiveConsole] = useState(true);
   const [logStreamState, setLogStreamState] = useState<LogStreamState>("disconnected");
+  const [playerAdminState, setPlayerAdminState] = useState<PlayerAdminState | null>(null);
+  const [playerActionName, setPlayerActionName] = useState("");
+  const [playerActionUuid, setPlayerActionUuid] = useState("");
+  const [playerBanReason, setPlayerBanReason] = useState("");
+  const [playerIpInput, setPlayerIpInput] = useState("");
 
   const [createServer, setCreateServer] = useState({
     name: "My Server",
@@ -836,6 +1030,53 @@ export default function App() {
     query: "essential",
     kind: "mod" as "mod" | "plugin" | "modpack" | "resourcepack"
   });
+  const [modpackForm, setModpackForm] = useState({
+    provider: "modrinth" as "modrinth" | "curseforge",
+    projectId: "",
+    requestedVersionId: ""
+  });
+  const [modpackPlan, setModpackPlan] = useState<ModpackPlan | null>(null);
+  const [modpackRollbacks, setModpackRollbacks] = useState<ModpackRollback[]>([]);
+  const [migrationImports, setMigrationImports] = useState<MigrationImportRecord[]>([]);
+  const [migrationManualForm, setMigrationManualForm] = useState({
+    name: "",
+    type: "paper" as "vanilla" | "paper" | "fabric",
+    mcVersion: "1.21.11",
+    rootPath: "",
+    port: 25565,
+    bedrockPort: 19132,
+    minMemoryMb: 1024,
+    maxMemoryMb: 4096,
+    javaPath: "java",
+    jarPath: ""
+  });
+  const [migrationSquidManifestPath, setMigrationSquidManifestPath] = useState("");
+  const [cloudDestinationForm, setCloudDestinationForm] = useState({
+    provider: "s3" as "s3" | "backblaze" | "google_drive",
+    name: "Primary Cloud Backup",
+    encryptionPassphrase: "",
+    enabled: true,
+    configJson: "{\n  \"bucket\": \"\",\n  \"region\": \"us-east-1\",\n  \"accessKeyId\": \"\",\n  \"secretAccessKey\": \"\",\n  \"prefix\": \"simpleservers\"\n}"
+  });
+  const [cloudDestinationEditId, setCloudDestinationEditId] = useState<string | null>(null);
+  const [submittingCloudDestination, setSubmittingCloudDestination] = useState(false);
+  const [cloudBackupUploadState, setCloudBackupUploadState] = useState<string | null>(null);
+  const [cloudBackupRestoreState, setCloudBackupRestoreState] = useState<string | null>(null);
+  const [runningPlayerAction, setRunningPlayerAction] = useState<string | null>(null);
+  const [runningModpackPlan, setRunningModpackPlan] = useState(false);
+  const [runningModpackAction, setRunningModpackAction] = useState(false);
+  const [runningMigrationImport, setRunningMigrationImport] = useState(false);
+  const [verifyingChecksum, setVerifyingChecksum] = useState(false);
+  const [exportingAudit, setExportingAudit] = useState<"json" | "csv" | null>(null);
+  const [trustVerifyForm, setTrustVerifyForm] = useState({
+    filePath: "",
+    expectedSha256: ""
+  });
+  const [trustVerifyResult, setTrustVerifyResult] = useState<{
+    filePath: string;
+    sha256: string;
+    matchesExpected: boolean | null;
+  } | null>(null);
   const [userForm, setUserForm] = useState({
     username: "operator",
     role: "admin" as UserRecord["role"],
@@ -1159,7 +1400,11 @@ export default function App() {
         setInstalledPackages([]);
         setPackageUpdates([]);
         setContentResults([]);
+        setModpackPlan(null);
+        setModpackRollbacks([]);
         setBackups([]);
+        setCloudBackupDestinations([]);
+        setCloudBackupArtifacts([]);
         setBackupPolicy(null);
         setPreflight(null);
         setCrashReports([]);
@@ -1167,6 +1412,7 @@ export default function App() {
         setQuickHostingDiagnostics(null);
         setSimpleStatus(null);
         setSimpleFixResult(null);
+        setPlayerAdminState(null);
         setPerformanceAdvisor(null);
         setEditorFiles([]);
         setEditorFileSnapshots([]);
@@ -1233,19 +1479,42 @@ export default function App() {
   async function refreshServerOperations(serverId: string, options?: { background?: boolean }): Promise<void> {
     const background = options?.background ?? false;
 
-    const [backupsRes, policyRes, preflightRes, crashRes, quickHostRes, quickHostDiagnosticsRes, performanceRes, simpleStatusRes] = await Promise.allSettled([
+    const [
+      backupsRes,
+      cloudDestinationsRes,
+      cloudArtifactsRes,
+      policyRes,
+      preflightRes,
+      crashRes,
+      quickHostRes,
+      quickHostDiagnosticsRes,
+      performanceRes,
+      simpleStatusRes,
+      playerAdminRes,
+      modpackRollbacksRes
+    ] = await Promise.allSettled([
       api.current.get<{ backups: BackupRecord[] }>(`/servers/${serverId}/backups`),
+      api.current.get<{ destinations: CloudBackupDestination[] }>(`/servers/${serverId}/cloud-backup-destinations`),
+      api.current.get<{ artifacts: CloudBackupArtifact[] }>(`/servers/${serverId}/cloud-backups`),
       api.current.get<{ policy: BackupPolicy }>(`/servers/${serverId}/backup-policy`),
       api.current.get<{ report: PreflightReport }>(`/servers/${serverId}/preflight`),
       api.current.get<{ reports: CrashReport[] }>(`/servers/${serverId}/crash-reports`),
       api.current.get<QuickHostingStatus>(`/servers/${serverId}/public-hosting/status`),
       api.current.get<QuickHostingDiagnostics>(`/servers/${serverId}/public-hosting/diagnostics`),
       api.current.get<PerformanceAdvisorReport>(`/servers/${serverId}/performance/advisor?hours=24`),
-      api.current.get<SimpleStatus>(`/servers/${serverId}/simple-status`)
+      api.current.get<SimpleStatus>(`/servers/${serverId}/simple-status`),
+      api.current.get<{ state: PlayerAdminState }>(`/servers/${serverId}/player-admin?limit=200`),
+      api.current.get<{ rollbacks: ModpackRollback[] }>(`/servers/${serverId}/modpack/rollbacks`)
     ]);
 
     if (backupsRes.status === "fulfilled") {
       setBackups(backupsRes.value.backups);
+    }
+    if (cloudDestinationsRes.status === "fulfilled") {
+      setCloudBackupDestinations(cloudDestinationsRes.value.destinations);
+    }
+    if (cloudArtifactsRes.status === "fulfilled") {
+      setCloudBackupArtifacts(cloudArtifactsRes.value.artifacts);
     }
     if (policyRes.status === "fulfilled") {
       setBackupPolicy(policyRes.value.policy);
@@ -1268,11 +1537,28 @@ export default function App() {
     if (simpleStatusRes.status === "fulfilled") {
       setSimpleStatus(simpleStatusRes.value);
     }
+    if (playerAdminRes.status === "fulfilled") {
+      setPlayerAdminState(playerAdminRes.value.state);
+    }
+    if (modpackRollbacksRes.status === "fulfilled") {
+      setModpackRollbacks(modpackRollbacksRes.value.rollbacks);
+    }
 
     if (!background) {
-      const failure = [backupsRes, policyRes, preflightRes, crashRes, quickHostRes, quickHostDiagnosticsRes, performanceRes, simpleStatusRes].find(
-        (entry) => entry.status === "rejected"
-      ) as PromiseRejectedResult | undefined;
+      const failure = [
+        backupsRes,
+        cloudDestinationsRes,
+        cloudArtifactsRes,
+        policyRes,
+        preflightRes,
+        crashRes,
+        quickHostRes,
+        quickHostDiagnosticsRes,
+        performanceRes,
+        simpleStatusRes,
+        playerAdminRes,
+        modpackRollbacksRes
+      ].find((entry) => entry.status === "rejected") as PromiseRejectedResult | undefined;
       if (failure) {
         setError(toErrorMessage(failure.reason));
       }
@@ -1284,17 +1570,23 @@ export default function App() {
 
     const canManageUsers = capabilities.userManage ?? viewer?.role === "owner";
     const canManageRemote = capabilities.remoteConfig ?? viewer?.role === "owner";
+    const canManageMigration = capabilities.serverCreate ?? (viewer?.role === "owner" || viewer?.role === "admin");
     const canReadTelemetry = capabilities.telemetryRead ?? (viewer?.role === "owner" || viewer?.role === "admin");
     const canReadAudit = capabilities.auditRead ?? (viewer?.role === "owner" || viewer?.role === "admin");
     const canReadTrust = capabilities.trustRead ?? true;
 
-    const [usersRes, remoteRes, javaRes, funnelRes, trustRes, auditRes] = await Promise.allSettled([
+    const [usersRes, remoteRes, javaRes, funnelRes, trustRes, auditRes, reliabilityRes, hardeningRes, bedrockRes, migrationRes] =
+      await Promise.allSettled([
       canManageUsers ? api.current.get<{ users: UserRecord[] }>("/users") : Promise.resolve(null),
       canManageRemote ? api.current.get<{ remote: RemoteState }>("/remote/status") : Promise.resolve(null),
       canReadTelemetry ? api.current.get<{ channels: JavaChannel[] }>("/system/java/channels") : Promise.resolve(null),
       canReadTelemetry ? api.current.get<TelemetryFunnel>("/telemetry/funnel?hours=168") : Promise.resolve(null),
       canReadTrust ? api.current.get<TrustReport>("/system/trust") : Promise.resolve(null),
-      canReadAudit ? api.current.get<{ logs: Audit[] }>("/audit") : Promise.resolve(null)
+      canReadAudit ? api.current.get<{ logs: Audit[] }>("/audit") : Promise.resolve(null),
+      canReadTelemetry ? api.current.get<ReliabilityDashboard>("/system/reliability?hours=168") : Promise.resolve(null),
+      api.current.get<HardeningChecklist>("/system/hardening-checklist"),
+      api.current.get<BedrockStrategy>("/system/bedrock-strategy"),
+      canManageMigration ? api.current.get<{ imports: MigrationImportRecord[] }>("/migration/imports") : Promise.resolve(null)
     ]);
 
     const usersPayload = usersRes.status === "fulfilled" ? usersRes.value : null;
@@ -1343,8 +1635,28 @@ export default function App() {
       setAudit([]);
     }
 
+    if (reliabilityRes.status === "fulfilled" && reliabilityRes.value) {
+      setReliability(reliabilityRes.value);
+    } else if (!canReadTelemetry) {
+      setReliability(null);
+    }
+
+    if (hardeningRes.status === "fulfilled") {
+      setHardeningChecklist(hardeningRes.value);
+    }
+
+    if (bedrockRes.status === "fulfilled") {
+      setBedrockStrategy(bedrockRes.value);
+    }
+
+    if (migrationRes.status === "fulfilled" && migrationRes.value) {
+      setMigrationImports(migrationRes.value.imports);
+    } else if (!canManageMigration) {
+      setMigrationImports([]);
+    }
+
     if (!background) {
-      const privilegedFailure = [usersRes, remoteRes, javaRes, funnelRes, trustRes, auditRes].find(
+      const privilegedFailure = [usersRes, remoteRes, javaRes, funnelRes, trustRes, auditRes, reliabilityRes, hardeningRes, bedrockRes].find(
         (entry) => entry.status === "rejected"
       ) as PromiseRejectedResult | undefined;
       if (privilegedFailure && !canReadAudit && !canManageUsers && !canManageRemote && !canReadTelemetry && !canReadTrust) {
@@ -3280,6 +3592,545 @@ export default function App() {
     }
   }
 
+  async function sendServerTerminalCommand(event?: FormEvent): Promise<void> {
+    event?.preventDefault();
+    if (!selectedServerId) {
+      return;
+    }
+
+    const command = terminalCommand.trim();
+    if (!command) {
+      return;
+    }
+
+    try {
+      setSendingTerminalCommand(true);
+      await api.current.post(`/servers/${selectedServerId}/command`, { command });
+      setTerminalCommand("");
+      await refreshLogs(selectedServerId);
+      setNotice(`Sent command: ${command}`);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSendingTerminalCommand(false);
+    }
+  }
+
+  function beginCloudDestinationEdit(destination: CloudBackupDestination): void {
+    const configCopy = { ...destination.config };
+    if (typeof configCopy.accessKeyId === "string" && configCopy.accessKeyId.includes("redacted")) {
+      configCopy.accessKeyId = "";
+    }
+    if (typeof configCopy.secretAccessKey === "string" && configCopy.secretAccessKey.includes("redacted")) {
+      configCopy.secretAccessKey = "";
+    }
+    if (typeof configCopy.accessToken === "string" && configCopy.accessToken.includes("redacted")) {
+      configCopy.accessToken = "";
+    }
+
+    setCloudDestinationEditId(destination.id);
+    setCloudDestinationForm({
+      provider: destination.provider,
+      name: destination.name,
+      encryptionPassphrase: "",
+      enabled: Boolean(destination.enabled),
+      configJson: JSON.stringify(configCopy, null, 2)
+    });
+  }
+
+  function cancelCloudDestinationEdit(): void {
+    setCloudDestinationEditId(null);
+    setCloudDestinationForm((previous) => ({
+      ...previous,
+      encryptionPassphrase: ""
+    }));
+  }
+
+  async function saveCloudDestination(): Promise<void> {
+    if (!selectedServerId) {
+      return;
+    }
+
+    const passphrase = cloudDestinationForm.encryptionPassphrase.trim();
+    if (passphrase.length < 12) {
+      setError("Cloud backup encryption passphrase must be at least 12 characters.");
+      return;
+    }
+
+    let config: Record<string, unknown>;
+    try {
+      const parsed = JSON.parse(cloudDestinationForm.configJson) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("Cloud destination config must be a JSON object.");
+      }
+      config = parsed as Record<string, unknown>;
+    } catch (e) {
+      setError(`Invalid destination config JSON: ${toErrorMessage(e)}`);
+      return;
+    }
+
+    try {
+      setSubmittingCloudDestination(true);
+      const payload = {
+        provider: cloudDestinationForm.provider,
+        name: cloudDestinationForm.name.trim(),
+        encryptionPassphrase: passphrase,
+        enabled: cloudDestinationForm.enabled,
+        config
+      };
+      if (cloudDestinationEditId) {
+        await api.current.put(`/servers/${selectedServerId}/cloud-backup-destinations/${cloudDestinationEditId}`, payload);
+      } else {
+        await api.current.post(`/servers/${selectedServerId}/cloud-backup-destinations`, payload);
+      }
+      await refreshServerOperations(selectedServerId);
+      setCloudDestinationEditId(null);
+      setCloudDestinationForm((previous) => ({
+        ...previous,
+        encryptionPassphrase: ""
+      }));
+      setNotice(cloudDestinationEditId ? "Updated cloud backup destination." : "Created cloud backup destination.");
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmittingCloudDestination(false);
+    }
+  }
+
+  async function deleteCloudDestination(destination: CloudBackupDestination): Promise<void> {
+    if (!selectedServerId) {
+      return;
+    }
+    const confirmed = window.confirm(`Delete cloud destination "${destination.name}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await api.current.delete(`/servers/${selectedServerId}/cloud-backup-destinations/${destination.id}`);
+      await refreshServerOperations(selectedServerId);
+      if (cloudDestinationEditId === destination.id) {
+        cancelCloudDestinationEdit();
+      }
+      setNotice(`Deleted cloud destination: ${destination.name}`);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function uploadBackupToCloudDestination(backupId: string, destinationId: string): Promise<void> {
+    if (!selectedServerId) {
+      return;
+    }
+
+    try {
+      setCloudBackupUploadState(`${backupId}:${destinationId}`);
+      await api.current.post(`/servers/${selectedServerId}/backups/${backupId}/upload-cloud`, {
+        destinationId
+      });
+      await refreshServerOperations(selectedServerId);
+      setNotice("Uploaded encrypted backup archive to cloud destination.");
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCloudBackupUploadState(null);
+    }
+  }
+
+  async function restoreCloudArtifact(artifactId: string): Promise<void> {
+    if (!selectedServerId) {
+      return;
+    }
+    const confirmed = window.confirm(
+      "Restore this cloud backup artifact? The server must be stopped first and current files will be replaced."
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setCloudBackupRestoreState(artifactId);
+      await api.current.post(`/servers/${selectedServerId}/cloud-backups/${artifactId}/restore`, {});
+      await refreshServerOperations(selectedServerId);
+      await refreshAll();
+      setNotice("Cloud backup restored and verified.");
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCloudBackupRestoreState(null);
+    }
+  }
+
+  async function runPlayerAdminAction(
+    actionKey: string,
+    endpoint: string,
+    payload: Record<string, unknown>,
+    successMessage: string
+  ): Promise<void> {
+    if (!selectedServerId) {
+      return;
+    }
+
+    try {
+      setRunningPlayerAction(actionKey);
+      await api.current.post(`/servers/${selectedServerId}${endpoint}`, payload);
+      await refreshServerOperations(selectedServerId);
+      setNotice(successMessage);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunningPlayerAction(null);
+    }
+  }
+
+  async function addOpPlayer(): Promise<void> {
+    const name = playerActionName.trim();
+    if (!name) {
+      setError("Enter a player name for op action.");
+      return;
+    }
+    await runPlayerAdminAction(
+      "op-add",
+      "/players/op",
+      {
+        name,
+        uuid: playerActionUuid.trim() || undefined
+      },
+      `Granted op to ${name}.`
+    );
+  }
+
+  async function removeOpPlayer(): Promise<void> {
+    const nameOrUuid = playerActionUuid.trim() || playerActionName.trim();
+    if (!nameOrUuid) {
+      setError("Enter a player name or UUID to remove op access.");
+      return;
+    }
+    await runPlayerAdminAction(
+      "op-remove",
+      "/players/op/remove",
+      {
+        nameOrUuid
+      },
+      `Removed op from ${nameOrUuid}.`
+    );
+  }
+
+  async function addWhitelistPlayer(): Promise<void> {
+    const name = playerActionName.trim();
+    if (!name) {
+      setError("Enter a player name to whitelist.");
+      return;
+    }
+    await runPlayerAdminAction(
+      "wl-add",
+      "/players/whitelist",
+      {
+        name,
+        uuid: playerActionUuid.trim() || undefined
+      },
+      `Whitelisted ${name}.`
+    );
+  }
+
+  async function removeWhitelistPlayer(): Promise<void> {
+    const nameOrUuid = playerActionUuid.trim() || playerActionName.trim();
+    if (!nameOrUuid) {
+      setError("Enter a player name or UUID to remove from whitelist.");
+      return;
+    }
+    await runPlayerAdminAction(
+      "wl-remove",
+      "/players/whitelist/remove",
+      {
+        nameOrUuid
+      },
+      `Removed ${nameOrUuid} from whitelist.`
+    );
+  }
+
+  async function banPlayer(): Promise<void> {
+    const name = playerActionName.trim();
+    if (!name) {
+      setError("Enter a player name to ban.");
+      return;
+    }
+    await runPlayerAdminAction(
+      "ban-player",
+      "/players/ban",
+      {
+        name,
+        uuid: playerActionUuid.trim() || undefined,
+        reason: playerBanReason.trim() || undefined
+      },
+      `Banned player ${name}.`
+    );
+  }
+
+  async function unbanPlayer(): Promise<void> {
+    const nameOrUuid = playerActionUuid.trim() || playerActionName.trim();
+    if (!nameOrUuid) {
+      setError("Enter a player name or UUID to unban.");
+      return;
+    }
+    await runPlayerAdminAction(
+      "unban-player",
+      "/players/unban",
+      {
+        nameOrUuid
+      },
+      `Unbanned ${nameOrUuid}.`
+    );
+  }
+
+  async function banIpAddress(): Promise<void> {
+    const ip = playerIpInput.trim();
+    if (!ip) {
+      setError("Enter an IP address to ban.");
+      return;
+    }
+    await runPlayerAdminAction(
+      "ban-ip",
+      "/players/ban-ip",
+      {
+        ip,
+        reason: playerBanReason.trim() || undefined
+      },
+      `Banned IP ${ip}.`
+    );
+  }
+
+  async function unbanIpAddress(): Promise<void> {
+    const ip = playerIpInput.trim();
+    if (!ip) {
+      setError("Enter an IP address to unban.");
+      return;
+    }
+    await runPlayerAdminAction(
+      "unban-ip",
+      "/players/unban-ip",
+      {
+        ip
+      },
+      `Unbanned IP ${ip}.`
+    );
+  }
+
+  async function planModpackChanges(): Promise<void> {
+    if (!selectedServerId) {
+      return;
+    }
+    if (!modpackForm.projectId.trim()) {
+      setError("Enter a modpack project id to plan.");
+      return;
+    }
+
+    try {
+      setRunningModpackPlan(true);
+      const plan = await api.current.post<ModpackPlan>(`/servers/${selectedServerId}/modpack/plan`, {
+        provider: modpackForm.provider,
+        projectId: modpackForm.projectId.trim(),
+        requestedVersionId: modpackForm.requestedVersionId.trim() || undefined
+      });
+      setModpackPlan(plan);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunningModpackPlan(false);
+    }
+  }
+
+  async function importModpack(): Promise<void> {
+    if (!selectedServerId) {
+      return;
+    }
+    if (!modpackForm.projectId.trim()) {
+      setError("Enter a modpack project id before import.");
+      return;
+    }
+
+    const hasCriticalConflict = modpackPlan?.conflicts.some((entry) => entry.level === "critical");
+    if (hasCriticalConflict) {
+      const confirmed = window.confirm("Critical conflicts are present. Continue with modpack import anyway?");
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    try {
+      setRunningModpackAction(true);
+      const response = await api.current.post<{ rollback: ModpackRollback }>(`/servers/${selectedServerId}/modpack/import`, {
+        provider: modpackForm.provider,
+        projectId: modpackForm.projectId.trim(),
+        requestedVersionId: modpackForm.requestedVersionId.trim() || undefined
+      });
+      await refreshPackages(selectedServerId);
+      await refreshServerOperations(selectedServerId);
+      setNotice(`Modpack import complete. Rollback checkpoint created (${response.rollback.id}).`);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunningModpackAction(false);
+    }
+  }
+
+  async function updateInstalledModpack(packageId: string): Promise<void> {
+    if (!selectedServerId) {
+      return;
+    }
+
+    try {
+      setRunningModpackAction(true);
+      const response = await api.current.post<{ rollback: ModpackRollback }>(
+        `/servers/${selectedServerId}/modpack/${packageId}/update`,
+        {}
+      );
+      await refreshPackages(selectedServerId);
+      await refreshServerOperations(selectedServerId);
+      setNotice(`Modpack updated. Rollback checkpoint created (${response.rollback.id}).`);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunningModpackAction(false);
+    }
+  }
+
+  async function rollbackModpack(rollbackId: string): Promise<void> {
+    if (!selectedServerId) {
+      return;
+    }
+    const confirmed = window.confirm("Restore this modpack rollback checkpoint? Server must be stopped first.");
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setRunningModpackAction(true);
+      await api.current.post(`/servers/${selectedServerId}/modpack/rollback`, {
+        rollbackId
+      });
+      await refreshPackages(selectedServerId);
+      await refreshServerOperations(selectedServerId);
+      setNotice("Modpack rollback restored successfully.");
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunningModpackAction(false);
+    }
+  }
+
+  async function importManualMigration(): Promise<void> {
+    try {
+      setRunningMigrationImport(true);
+      const response = await api.current.post<{ imported: { serverId: string; name: string } }>(
+        "/migration/import/manual",
+        migrationManualForm
+      );
+      setSelectedServerId(response.imported.serverId);
+      await refreshAll();
+      setNotice(`Imported server "${response.imported.name}" from existing directory.`);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunningMigrationImport(false);
+    }
+  }
+
+  async function importSquidServersMigration(): Promise<void> {
+    const manifestPath = migrationSquidManifestPath.trim();
+    if (!manifestPath) {
+      setError("Provide a SquidServers manifest path.");
+      return;
+    }
+
+    try {
+      setRunningMigrationImport(true);
+      const outcome = await api.current.post<{ imported: Array<{ serverId: string; name: string }>; failed: Array<{ name: string; error: string }> }>(
+        "/migration/import/squidservers",
+        {
+          manifestPath,
+          javaPath: migrationManualForm.javaPath.trim() || undefined
+        }
+      );
+      await refreshAll();
+      setNotice(`SquidServers import complete. Imported ${outcome.imported.length}, failed ${outcome.failed.length}.`);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunningMigrationImport(false);
+    }
+  }
+
+  async function verifyChecksum(): Promise<void> {
+    if (!trustVerifyForm.filePath.trim()) {
+      setError("Enter a local file path to verify checksum.");
+      return;
+    }
+
+    try {
+      setVerifyingChecksum(true);
+      const response = await api.current.post<{
+        filePath: string;
+        sha256: string;
+        matchesExpected: boolean | null;
+      }>("/system/trust/verify-checksum", {
+        filePath: trustVerifyForm.filePath.trim(),
+        expectedSha256: trustVerifyForm.expectedSha256.trim() || undefined
+      });
+      setTrustVerifyResult(response);
+      setNotice(response.matchesExpected === false ? "Checksum mismatch detected." : "Checksum verification complete.");
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setVerifyingChecksum(false);
+    }
+  }
+
+  async function exportAuditTrail(format: "json" | "csv"): Promise<void> {
+    try {
+      setExportingAudit(format);
+      const response = await fetch(`${apiBase}/audit/export?format=${format}&limit=2000`, {
+        headers: {
+          "x-api-token": token
+        }
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Failed to export audit as ${format}`);
+      }
+      const contentType = response.headers.get("content-type") ?? (format === "csv" ? "text/csv" : "application/json");
+      const text = await response.text();
+      const blob = new Blob([text], { type: contentType });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `simpleservers-audit-${new Date().toISOString().slice(0, 10)}.${format}`;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setNotice(`Exported audit trail (${format.toUpperCase()}).`);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExportingAudit(null);
+    }
+  }
+
   async function createUser(): Promise<void> {
     try {
       await api.current.post("/users", userForm);
@@ -4277,6 +5128,37 @@ export default function App() {
                 </button>
               </div>
             </div>
+            {bedrockStrategy ? (
+              <div className="setup-recipes">
+                <h3>Bedrock Strategy</h3>
+                <p className="muted-note">{bedrockStrategy.recommendation}</p>
+                <ul className="list list-compact">
+                  {bedrockStrategy.oneClickCrossplay.limits.map((limit) => (
+                    <li key={limit}>
+                      <div>
+                        <span>{limit}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {hardeningChecklist ? (
+              <div className="setup-recipes">
+                <h3>Guided Hardening After First Launch</h3>
+                <ul className="list list-compact">
+                  {hardeningChecklist.hardeningSteps.map((step) => (
+                    <li key={step.id}>
+                      <div>
+                        <strong>{step.title}</strong>
+                        <span>{step.detail}</span>
+                      </div>
+                      <span className={`status-pill ${step.done ? "tone-ok" : "tone-warn"}`}>{step.done ? "Done" : "Pending"}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <form className="grid-form" onSubmit={(event) => void createServerSubmit(event)}>
               <label>
                 Name
@@ -5070,6 +5952,24 @@ export default function App() {
                   </div>
                 ))}
               </div>
+              <form
+                className="grid-form"
+                onSubmit={(event) => {
+                  void sendServerTerminalCommand(event);
+                }}
+              >
+                <label>
+                  Server Terminal Command
+                  <input
+                    value={terminalCommand}
+                    onChange={(event) => setTerminalCommand(event.target.value)}
+                    placeholder="say Server maintenance in 5 minutes"
+                  />
+                </label>
+                <button type="submit" disabled={!selectedServerId || sendingTerminalCommand || !terminalCommand.trim()}>
+                  {sendingTerminalCommand ? "Sending..." : "Run Command"}
+                </button>
+              </form>
               <h3>Preflight Diagnostics</h3>
               <ul className="list">
                 {(preflight?.issues ?? []).length === 0 ? (
@@ -5179,12 +6079,412 @@ export default function App() {
                       <span>{(backup.sizeBytes / (1024 * 1024)).toFixed(1)} MB</span>
                       <span>{backup.restoredAt ? `restored at ${new Date(backup.restoredAt).toLocaleString()}` : "not restored"}</span>
                     </div>
-                    <button onClick={() => void restoreBackup(backup.id)} type="button">
-                      Restore
+                    <div className="inline-actions">
+                      <button onClick={() => void restoreBackup(backup.id)} type="button">
+                        Restore
+                      </button>
+                      {cloudBackupDestinations
+                        .filter((destination) => Boolean(destination.enabled))
+                        .map((destination) => {
+                          const uploadKey = `${backup.id}:${destination.id}`;
+                          return (
+                            <button
+                              key={uploadKey}
+                              type="button"
+                              onClick={() => void uploadBackupToCloudDestination(backup.id, destination.id)}
+                              disabled={cloudBackupUploadState === uploadKey}
+                            >
+                              {cloudBackupUploadState === uploadKey ? "Uploading..." : `Upload -> ${destination.name}`}
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </li>
+                ))}
+                {backups.length === 0 ? (
+                  <li>
+                    <div>
+                      <strong>No local backups yet</strong>
+                      <span>Create a backup first, then upload encrypted archives to cloud destinations.</span>
+                    </div>
+                  </li>
+                ) : null}
+              </ul>
+              <h3>Cloud Backup Destinations</h3>
+              <form
+                className="grid-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void saveCloudDestination();
+                }}
+              >
+                <label>
+                  Provider
+                  <select
+                    value={cloudDestinationForm.provider}
+                    onChange={(event) =>
+                      setCloudDestinationForm((previous) => ({
+                        ...previous,
+                        provider: event.target.value as "s3" | "backblaze" | "google_drive"
+                      }))
+                    }
+                  >
+                    <option value="s3">S3</option>
+                    <option value="backblaze">Backblaze B2 (S3)</option>
+                    <option value="google_drive">Google Drive</option>
+                  </select>
+                </label>
+                <label>
+                  Name
+                  <input
+                    value={cloudDestinationForm.name}
+                    onChange={(event) => setCloudDestinationForm((previous) => ({ ...previous, name: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Encryption Passphrase
+                  <input
+                    type="password"
+                    value={cloudDestinationForm.encryptionPassphrase}
+                    onChange={(event) =>
+                      setCloudDestinationForm((previous) => ({
+                        ...previous,
+                        encryptionPassphrase: event.target.value
+                      }))
+                    }
+                    placeholder="At least 12 characters"
+                  />
+                </label>
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={cloudDestinationForm.enabled}
+                    onChange={(event) =>
+                      setCloudDestinationForm((previous) => ({
+                        ...previous,
+                        enabled: event.target.checked
+                      }))
+                    }
+                  />
+                  Destination enabled
+                </label>
+                <label>
+                  Destination Config (JSON)
+                  <textarea
+                    rows={8}
+                    value={cloudDestinationForm.configJson}
+                    onChange={(event) =>
+                      setCloudDestinationForm((previous) => ({
+                        ...previous,
+                        configJson: event.target.value
+                      }))
+                    }
+                  />
+                </label>
+                <div className="inline-actions">
+                  <button type="submit" disabled={!selectedServerId || submittingCloudDestination}>
+                    {submittingCloudDestination
+                      ? "Saving..."
+                      : cloudDestinationEditId
+                        ? "Update Destination"
+                        : "Add Destination"}
+                  </button>
+                  {cloudDestinationEditId ? (
+                    <button type="button" onClick={cancelCloudDestinationEdit} disabled={submittingCloudDestination}>
+                      Cancel Edit
+                    </button>
+                  ) : null}
+                </div>
+              </form>
+              <ul className="list">
+                {cloudBackupDestinations.map((destination) => (
+                  <li key={destination.id}>
+                    <div>
+                      <strong>{destination.name}</strong>
+                      <span>{destination.provider}</span>
+                      <span>{destination.enabled ? "enabled" : "disabled"}</span>
+                    </div>
+                    <div className="inline-actions">
+                      <button type="button" onClick={() => beginCloudDestinationEdit(destination)}>
+                        Edit
+                      </button>
+                      <button type="button" onClick={() => void deleteCloudDestination(destination)}>
+                        Delete
+                      </button>
+                    </div>
+                  </li>
+                ))}
+                {cloudBackupDestinations.length === 0 ? (
+                  <li>
+                    <div>
+                      <strong>No cloud destinations configured</strong>
+                      <span>Add S3, Backblaze, or Google Drive and keep `dryRun: true` during setup testing.</span>
+                    </div>
+                  </li>
+                ) : null}
+              </ul>
+              <h3>Cloud Restore Verification</h3>
+              <ul className="list">
+                {cloudBackupArtifacts.map((artifact) => (
+                  <li key={artifact.id}>
+                    <div>
+                      <strong>{artifact.remoteKey}</strong>
+                      <span>{new Date(artifact.uploadedAt).toLocaleString()}</span>
+                      <span>
+                        {(artifact.sizeBytes / (1024 * 1024)).toFixed(1)} MB · {artifact.status} · sha256 {artifact.checksumSha256.slice(0, 10)}...
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void restoreCloudArtifact(artifact.id)}
+                      disabled={cloudBackupRestoreState === artifact.id}
+                    >
+                      {cloudBackupRestoreState === artifact.id ? "Restoring..." : "Restore + Verify"}
                     </button>
                   </li>
                 ))}
+                {cloudBackupArtifacts.length === 0 ? (
+                  <li>
+                    <div>
+                      <strong>No cloud artifacts uploaded yet</strong>
+                      <span>Upload a local backup to a destination, then restore here with checksum verification.</span>
+                    </div>
+                  </li>
+                ) : null}
               </ul>
+            </article>
+          </section>
+
+          <section className="dual-grid">
+            <article className="panel">
+              <h2>Player Administration</h2>
+              <p className="muted-note">Manage ops, whitelist, bans, and player history without editing JSON files.</p>
+              <div className="grid-form">
+                <label>
+                  Player Name
+                  <input value={playerActionName} onChange={(event) => setPlayerActionName(event.target.value)} placeholder="PlayerName" />
+                </label>
+                <label>
+                  Player UUID (optional)
+                  <input
+                    value={playerActionUuid}
+                    onChange={(event) => setPlayerActionUuid(event.target.value)}
+                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                  />
+                </label>
+                <label>
+                  Ban Reason (optional)
+                  <input value={playerBanReason} onChange={(event) => setPlayerBanReason(event.target.value)} placeholder="griefing" />
+                </label>
+                <label>
+                  IP Address
+                  <input value={playerIpInput} onChange={(event) => setPlayerIpInput(event.target.value)} placeholder="203.0.113.5" />
+                </label>
+              </div>
+              <div className="inline-actions">
+                <button type="button" onClick={() => void addOpPlayer()} disabled={runningPlayerAction === "op-add"}>
+                  {runningPlayerAction === "op-add" ? "Saving..." : "Add Op"}
+                </button>
+                <button type="button" onClick={() => void removeOpPlayer()} disabled={runningPlayerAction === "op-remove"}>
+                  {runningPlayerAction === "op-remove" ? "Saving..." : "Remove Op"}
+                </button>
+                <button type="button" onClick={() => void addWhitelistPlayer()} disabled={runningPlayerAction === "wl-add"}>
+                  {runningPlayerAction === "wl-add" ? "Saving..." : "Whitelist"}
+                </button>
+                <button type="button" onClick={() => void removeWhitelistPlayer()} disabled={runningPlayerAction === "wl-remove"}>
+                  {runningPlayerAction === "wl-remove" ? "Saving..." : "Unwhitelist"}
+                </button>
+                <button type="button" onClick={() => void banPlayer()} disabled={runningPlayerAction === "ban-player"}>
+                  {runningPlayerAction === "ban-player" ? "Saving..." : "Ban Player"}
+                </button>
+                <button type="button" onClick={() => void unbanPlayer()} disabled={runningPlayerAction === "unban-player"}>
+                  {runningPlayerAction === "unban-player" ? "Saving..." : "Unban Player"}
+                </button>
+                <button type="button" onClick={() => void banIpAddress()} disabled={runningPlayerAction === "ban-ip"}>
+                  {runningPlayerAction === "ban-ip" ? "Saving..." : "Ban IP"}
+                </button>
+                <button type="button" onClick={() => void unbanIpAddress()} disabled={runningPlayerAction === "unban-ip"}>
+                  {runningPlayerAction === "unban-ip" ? "Saving..." : "Unban IP"}
+                </button>
+              </div>
+              <ul className="list">
+                <li>
+                  <div>
+                    <strong>Ops</strong>
+                    <span>{playerAdminState?.ops.length ?? 0}</span>
+                  </div>
+                </li>
+                <li>
+                  <div>
+                    <strong>Whitelist</strong>
+                    <span>{playerAdminState?.whitelist.length ?? 0}</span>
+                  </div>
+                </li>
+                <li>
+                  <div>
+                    <strong>Banned Players</strong>
+                    <span>{playerAdminState?.bannedPlayers.length ?? 0}</span>
+                  </div>
+                </li>
+                <li>
+                  <div>
+                    <strong>Banned IPs</strong>
+                    <span>{playerAdminState?.bannedIps.length ?? 0}</span>
+                  </div>
+                </li>
+              </ul>
+            </article>
+
+            <article className="panel">
+              <h2>Player List and History</h2>
+              <h3>Known Players</h3>
+              <ul className="list list-compact">
+                {(playerAdminState?.knownPlayers ?? []).slice(0, 12).map((entry) => (
+                  <li key={`${entry.uuid}-${entry.name}`}>
+                    <div>
+                      <strong>{entry.name}</strong>
+                      <span>{entry.uuid}</span>
+                    </div>
+                  </li>
+                ))}
+                {(playerAdminState?.knownPlayers.length ?? 0) === 0 ? (
+                  <li>
+                    <div>
+                      <strong>No known players yet</strong>
+                      <span>Player list will populate from runtime events and admin actions.</span>
+                    </div>
+                  </li>
+                ) : null}
+              </ul>
+              <h3>Recent Admin/Runtime Events</h3>
+              <ul className="list list-compact">
+                {(playerAdminState?.history ?? []).slice(0, 20).map((entry, index) => (
+                  <li key={`${entry.ts}-${entry.subject}-${index}`}>
+                    <div>
+                      <strong>{entry.kind}</strong>
+                      <span>{new Date(entry.ts).toLocaleString()} · {entry.subject}</span>
+                      <span>{entry.detail}</span>
+                    </div>
+                    <span className={`status-pill ${entry.source === "admin" ? "tone-warn" : "tone-neutral"}`}>
+                      {entry.source}
+                    </span>
+                  </li>
+                ))}
+                {(playerAdminState?.history.length ?? 0) === 0 ? (
+                  <li>
+                    <div>
+                      <strong>No player history yet</strong>
+                      <span>Events appear after players join/leave or when admin actions are applied.</span>
+                    </div>
+                  </li>
+                ) : null}
+              </ul>
+            </article>
+          </section>
+
+          <section className="dual-grid">
+            <article className="panel">
+              <h2>Reliability Dashboard</h2>
+              {reliability ? (
+                <>
+                  <p className="muted-note">Window: {reliability.windowHours}h · generated {new Date(reliability.generatedAt).toLocaleString()}</p>
+                  <ul className="list">
+                    <li>
+                      <div>
+                        <strong>Startup Success Rate</strong>
+                        <span>
+                          {reliability.startup.success}/{reliability.startup.total} successful starts
+                        </span>
+                      </div>
+                      <span className={`status-pill ${reliability.startup.successRatePct >= 90 ? "tone-ok" : "tone-warn"}`}>
+                        {reliability.startup.successRatePct}%
+                      </span>
+                    </li>
+                    <li>
+                      <div>
+                        <strong>Crash Rate</strong>
+                        <span>{reliability.crashes.total} crashes in window</span>
+                      </div>
+                      <span className={`status-pill ${reliability.crashes.crashRatePer100Starts < 10 ? "tone-ok" : "tone-warn"}`}>
+                        {reliability.crashes.crashRatePer100Starts}/100 starts
+                      </span>
+                    </li>
+                    <li>
+                      <div>
+                        <strong>Mean Recovery Time</strong>
+                        <span>
+                          {reliability.recovery.meanRecoveryTimeMinutes !== null
+                            ? `${reliability.recovery.meanRecoveryTimeMinutes} minutes`
+                            : "not enough data"}
+                        </span>
+                      </div>
+                    </li>
+                    <li>
+                      <div>
+                        <strong>Tunnel Uptime</strong>
+                        <span>{reliability.tunnels.tracked} tracked tunnels</span>
+                      </div>
+                      <span className={`status-pill ${reliability.tunnels.uptimePct >= 95 ? "tone-ok" : "tone-warn"}`}>
+                        {reliability.tunnels.uptimePct}%
+                      </span>
+                    </li>
+                    <li>
+                      <div>
+                        <strong>Backup Restore Success</strong>
+                        <span>{reliability.backups.restoreSuccess}/{reliability.backups.restoreAttempts} successful restores</span>
+                      </div>
+                      <span className={`status-pill ${reliability.backups.restoreSuccessRatePct >= 90 ? "tone-ok" : "tone-warn"}`}>
+                        {reliability.backups.restoreSuccessRatePct}%
+                      </span>
+                    </li>
+                  </ul>
+                </>
+              ) : (
+                <p className="muted-note">No reliability data yet.</p>
+              )}
+            </article>
+
+            <article className="panel">
+              <h2>Quick Local Mode and Hardening</h2>
+              {hardeningChecklist ? (
+                <>
+                  <p className="muted-note">{hardeningChecklist.quickLocalMode.description}</p>
+                  <p className="muted-note">
+                    First successful launch:{" "}
+                    {hardeningChecklist.quickLocalMode.firstSuccessfulLaunchAt
+                      ? new Date(hardeningChecklist.quickLocalMode.firstSuccessfulLaunchAt).toLocaleString()
+                      : "not yet recorded"}
+                  </p>
+                  <ul className="list">
+                    {hardeningChecklist.hardeningSteps.map((step) => (
+                      <li key={step.id}>
+                        <div>
+                          <strong>{step.title}</strong>
+                          <span>{step.detail}</span>
+                        </div>
+                        <span className={`status-pill ${step.done ? "tone-ok" : "tone-warn"}`}>{step.done ? "Done" : "Pending"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="muted-note">Hardening checklist unavailable.</p>
+              )}
+              {bedrockStrategy ? (
+                <>
+                  <h3>Bedrock Crossplay Strategy</h3>
+                  <p className="muted-note">{bedrockStrategy.recommendation}</p>
+                  <ul className="list list-compact">
+                    {bedrockStrategy.oneClickCrossplay.limits.map((limit) => (
+                      <li key={limit}>
+                        <div>
+                          <span>{limit}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
             </article>
           </section>
 
@@ -5573,119 +6873,276 @@ export default function App() {
       ) : null}
 
       {activeView === "content" && isAdvancedExperience ? (
-        <section className="dual-grid">
-          <article className="panel">
-            <h2>Content Manager</h2>
+        <>
+          <section className="dual-grid">
+            <article className="panel">
+              <h2>Content Manager</h2>
+              <form
+                className="grid-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void searchContent();
+                }}
+              >
+                <label>
+                  Server
+                  <select value={selectedServerId ?? ""} onChange={(e) => setSelectedServerId(e.target.value || null)}>
+                    {servers.map((server) => (
+                      <option key={server.id} value={server.id}>
+                        {server.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Provider
+                  <select
+                    value={contentForm.provider}
+                    onChange={(e) => setContentForm((prev) => ({ ...prev, provider: e.target.value as "modrinth" | "curseforge" }))}
+                  >
+                    <option value="modrinth">Modrinth</option>
+                    <option value="curseforge">CurseForge</option>
+                  </select>
+                </label>
+                <label>
+                  Package Type
+                  <select
+                    value={contentForm.kind}
+                    onChange={(e) =>
+                      setContentForm((prev) => ({
+                        ...prev,
+                        kind: e.target.value as "mod" | "plugin" | "modpack" | "resourcepack"
+                      }))
+                    }
+                  >
+                    <option value="mod">mod</option>
+                    <option value="plugin">plugin</option>
+                    <option value="modpack">modpack</option>
+                    <option value="resourcepack">resourcepack</option>
+                  </select>
+                </label>
+                <label>
+                  Query
+                  <input value={contentForm.query} onChange={(e) => setContentForm((prev) => ({ ...prev, query: e.target.value }))} />
+                </label>
+                <button type="submit">Search</button>
+              </form>
+
+              <ul className="list">
+                {contentResults.map((result) => (
+                  <li key={`${result.provider}-${result.projectId}`}>
+                    <div>
+                      <strong>{result.name}</strong>
+                      <span>{result.summary}</span>
+                      <span>
+                        {result.provider} / {result.kind} / {result.downloads.toLocaleString()} downloads
+                      </span>
+                      <span>{result.compatible ? "compatible" : "compatibility unknown"}</span>
+                    </div>
+                    <div className="inline-actions">
+                      <button onClick={() => void installPackage(result.provider, result.projectId, result.kind)} type="button">
+                        Install
+                      </button>
+                      {result.kind === "modpack" ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setModpackForm({
+                              provider: result.provider,
+                              projectId: result.projectId,
+                              requestedVersionId: result.latestVersionId ?? ""
+                            });
+                            setModpackPlan(null);
+                          }}
+                        >
+                          Stage Modpack
+                        </button>
+                      ) : null}
+                    </div>
+                  </li>
+                ))}
+                {hasSearchedContent && contentResults.length === 0 ? (
+                  <li>
+                    <div>
+                      <strong>No results found</strong>
+                      <span>Try a different keyword, switch provider, or use another package type.</span>
+                    </div>
+                  </li>
+                ) : null}
+              </ul>
+            </article>
+
+            <article className="panel">
+              <h2>Installed Packages</h2>
+              <ul className="list">
+                {installedPackages.map((pkg) => {
+                  const update = packageUpdates.find((entry) => entry.packageId === pkg.id);
+                  return (
+                    <li key={pkg.id}>
+                      <div>
+                        <strong>
+                          {pkg.provider}:{pkg.projectId}
+                        </strong>
+                        <span>
+                          version {pkg.versionId} ({pkg.kind})
+                        </span>
+                        <span>
+                          update: {update?.available ? `available -> ${update.latestVersionId}` : "up-to-date"}
+                        </span>
+                      </div>
+                      <div className="inline-actions">
+                        <button
+                          disabled={!update?.available}
+                          onClick={() => void (pkg.kind === "modpack" ? updateInstalledModpack(pkg.id) : updatePackage(pkg.id))}
+                          type="button"
+                        >
+                          Update
+                        </button>
+                        <button onClick={() => void uninstallPackage(pkg.id)} type="button">
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+                {installedPackages.length === 0 ? (
+                  <li>
+                    <div>
+                      <strong>No installed packages</strong>
+                      <span>Search and install content from Modrinth or CurseForge.</span>
+                    </div>
+                  </li>
+                ) : null}
+              </ul>
+            </article>
+          </section>
+
+          <section className="panel">
+            <h2>Modpack Workflow</h2>
+            <p className="muted-note">Plan conflicts, import safely with pre-change backup, and rollback to known-good checkpoints.</p>
             <form
               className="grid-form"
               onSubmit={(event) => {
                 event.preventDefault();
-                void searchContent();
+                void planModpackChanges();
               }}
             >
               <label>
-                Server
-                <select value={selectedServerId ?? ""} onChange={(e) => setSelectedServerId(e.target.value || null)}>
-                  {servers.map((server) => (
-                    <option key={server.id} value={server.id}>
-                      {server.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
                 Provider
                 <select
-                  value={contentForm.provider}
-                  onChange={(e) => setContentForm((prev) => ({ ...prev, provider: e.target.value as "modrinth" | "curseforge" }))}
+                  value={modpackForm.provider}
+                  onChange={(event) =>
+                    setModpackForm((previous) => ({
+                      ...previous,
+                      provider: event.target.value as "modrinth" | "curseforge"
+                    }))
+                  }
                 >
                   <option value="modrinth">Modrinth</option>
                   <option value="curseforge">CurseForge</option>
                 </select>
               </label>
               <label>
-                Package Type
-                <select
-                  value={contentForm.kind}
-                  onChange={(e) =>
-                    setContentForm((prev) => ({
-                      ...prev,
-                      kind: e.target.value as "mod" | "plugin" | "modpack" | "resourcepack"
+                Modpack Project ID
+                <input
+                  value={modpackForm.projectId}
+                  onChange={(event) =>
+                    setModpackForm((previous) => ({
+                      ...previous,
+                      projectId: event.target.value
                     }))
                   }
-                >
-                  <option value="mod">mod</option>
-                  <option value="plugin">plugin</option>
-                  <option value="modpack">modpack</option>
-                  <option value="resourcepack">resourcepack</option>
-                </select>
+                />
               </label>
               <label>
-                Query
-                <input value={contentForm.query} onChange={(e) => setContentForm((prev) => ({ ...prev, query: e.target.value }))} />
+                Requested Version ID (optional)
+                <input
+                  value={modpackForm.requestedVersionId}
+                  onChange={(event) =>
+                    setModpackForm((previous) => ({
+                      ...previous,
+                      requestedVersionId: event.target.value
+                    }))
+                  }
+                />
               </label>
-              <button type="submit">Search</button>
+              <div className="inline-actions">
+                <button type="submit" disabled={runningModpackPlan}>
+                  {runningModpackPlan ? "Planning..." : "Plan Import"}
+                </button>
+                <button type="button" onClick={() => void importModpack()} disabled={runningModpackAction}>
+                  {runningModpackAction ? "Applying..." : "Import with Rollback"}
+                </button>
+              </div>
             </form>
-
-            <ul className="list">
-              {contentResults.map((result) => (
-                <li key={`${result.provider}-${result.projectId}`}>
-                  <div>
-                    <strong>{result.name}</strong>
-                    <span>{result.summary}</span>
-                    <span>
-                      {result.provider} / {result.kind} / {result.downloads.toLocaleString()} downloads
+            {modpackPlan ? (
+              <>
+                <ul className="list">
+                  <li>
+                    <div>
+                      <strong>Safe To Apply</strong>
+                      <span>{modpackPlan.safeToApply ? "No critical conflicts found." : "Critical conflicts found."}</span>
+                    </div>
+                    <span className={`status-pill ${modpackPlan.safeToApply ? "tone-ok" : "tone-error"}`}>
+                      {modpackPlan.safeToApply ? "Safe" : "Review"}
                     </span>
-                    <span>{result.compatible ? "compatible" : "compatibility unknown"}</span>
+                  </li>
+                  <li>
+                    <div>
+                      <strong>Rollback Plan</strong>
+                      <span>{modpackPlan.rollbackPlan.strategy}</span>
+                      <span>Automatic backup: {modpackPlan.rollbackPlan.automaticBackup ? "yes" : "no"}</span>
+                    </div>
+                  </li>
+                </ul>
+                <h3>Conflict Detection</h3>
+                <ul className="list list-compact">
+                  {modpackPlan.conflicts.map((conflict) => (
+                    <li key={`${conflict.code}-${conflict.message}`}>
+                      <div>
+                        <strong>{conflict.code}</strong>
+                        <span>{conflict.message}</span>
+                        <span>{conflict.recommendation}</span>
+                      </div>
+                      <span className={`status-pill ${conflict.level === "critical" ? "tone-error" : "tone-warn"}`}>{conflict.level}</span>
+                    </li>
+                  ))}
+                  {modpackPlan.conflicts.length === 0 ? (
+                    <li>
+                      <div>
+                        <strong>No conflicts detected</strong>
+                        <span>Import is ready to apply.</span>
+                      </div>
+                    </li>
+                  ) : null}
+                </ul>
+              </>
+            ) : null}
+            <h3>Rollback History</h3>
+            <ul className="list">
+              {modpackRollbacks.map((rollback) => (
+                <li key={rollback.id}>
+                  <div>
+                    <strong>{rollback.reason}</strong>
+                    <span>{new Date(rollback.createdAt).toLocaleString()}</span>
+                    <span>Backup {rollback.backupId}</span>
                   </div>
-                  <button onClick={() => void installPackage(result.provider, result.projectId, result.kind)} type="button">
-                    Install
+                  <button type="button" onClick={() => void rollbackModpack(rollback.id)} disabled={runningModpackAction}>
+                    {runningModpackAction ? "Working..." : "Rollback"}
                   </button>
                 </li>
               ))}
-              {hasSearchedContent && contentResults.length === 0 ? (
+              {modpackRollbacks.length === 0 ? (
                 <li>
                   <div>
-                    <strong>No results found</strong>
-                    <span>Try a different keyword, switch provider, or use another package type.</span>
+                    <strong>No rollback checkpoints yet</strong>
+                    <span>Import or update a modpack to generate safe rollback entries.</span>
                   </div>
                 </li>
               ) : null}
             </ul>
-          </article>
-
-          <article className="panel">
-            <h2>Installed Packages</h2>
-            <ul className="list">
-              {installedPackages.map((pkg) => {
-                const update = packageUpdates.find((entry) => entry.packageId === pkg.id);
-                return (
-                  <li key={pkg.id}>
-                    <div>
-                      <strong>
-                        {pkg.provider}:{pkg.projectId}
-                      </strong>
-                      <span>
-                        version {pkg.versionId} ({pkg.kind})
-                      </span>
-                      <span>
-                        update: {update?.available ? `available -> ${update.latestVersionId}` : "up-to-date"}
-                      </span>
-                    </div>
-                    <div className="inline-actions">
-                      <button disabled={!update?.available} onClick={() => void updatePackage(pkg.id)} type="button">
-                        Update
-                      </button>
-                      <button onClick={() => void uninstallPackage(pkg.id)} type="button">
-                        Remove
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </article>
-        </section>
+          </section>
+        </>
       ) : null}
 
       {activeView === "trust" && isAdvancedExperience ? (
@@ -5826,10 +7283,118 @@ export default function App() {
                     </a>
                   ) : null}
                 </li>
+                <li>
+                  <div>
+                    <strong>SBOM</strong>
+                    <span>{trustReport.verification.sbomUrl ?? "No SBOM URL published for this build."}</span>
+                  </div>
+                  {trustReport.verification.sbomUrl ? (
+                    <a href={trustReport.verification.sbomUrl} target="_blank" rel="noreferrer">
+                      Open SBOM
+                    </a>
+                  ) : null}
+                </li>
               </ul>
             ) : (
               <p className="muted-note">No verification metadata available.</p>
             )}
+          </section>
+
+          <section className="dual-grid">
+            <article className="panel">
+              <h2>Local Checksum Verification</h2>
+              <p className="muted-note">Verify downloaded binaries/files against published SHA-256 checksums.</p>
+              <form
+                className="grid-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void verifyChecksum();
+                }}
+              >
+                <label>
+                  Local File Path
+                  <input
+                    value={trustVerifyForm.filePath}
+                    onChange={(event) =>
+                      setTrustVerifyForm((previous) => ({
+                        ...previous,
+                        filePath: event.target.value
+                      }))
+                    }
+                    placeholder="/path/to/downloaded-artifact"
+                  />
+                </label>
+                <label>
+                  Expected SHA-256 (optional)
+                  <input
+                    value={trustVerifyForm.expectedSha256}
+                    onChange={(event) =>
+                      setTrustVerifyForm((previous) => ({
+                        ...previous,
+                        expectedSha256: event.target.value
+                      }))
+                    }
+                    placeholder="64-char hexadecimal hash"
+                  />
+                </label>
+                <button type="submit" disabled={verifyingChecksum}>
+                  {verifyingChecksum ? "Verifying..." : "Verify Checksum"}
+                </button>
+              </form>
+              {trustVerifyResult ? (
+                <ul className="list list-compact">
+                  <li>
+                    <div>
+                      <strong>File</strong>
+                      <span>{trustVerifyResult.filePath}</span>
+                    </div>
+                  </li>
+                  <li>
+                    <div>
+                      <strong>SHA-256</strong>
+                      <span><code>{trustVerifyResult.sha256}</code></span>
+                    </div>
+                    {trustVerifyResult.matchesExpected !== null ? (
+                      <span className={`status-pill ${trustVerifyResult.matchesExpected ? "tone-ok" : "tone-error"}`}>
+                        {trustVerifyResult.matchesExpected ? "Match" : "Mismatch"}
+                      </span>
+                    ) : null}
+                  </li>
+                </ul>
+              ) : null}
+            </article>
+
+            <article className="panel">
+              <h2>Audit Export</h2>
+              <p className="muted-note">Export audit logs for compliance and external review.</p>
+              <div className="inline-actions">
+                <button type="button" onClick={() => void exportAuditTrail("json")} disabled={exportingAudit !== null}>
+                  {exportingAudit === "json" ? "Exporting JSON..." : "Export JSON"}
+                </button>
+                <button type="button" onClick={() => void exportAuditTrail("csv")} disabled={exportingAudit !== null}>
+                  {exportingAudit === "csv" ? "Exporting CSV..." : "Export CSV"}
+                </button>
+                <button type="button" onClick={() => void refreshAdminData()} disabled={!connected}>
+                  Refresh Trust Data
+                </button>
+              </div>
+              {trustReport?.attestations ? (
+                <ul className="list list-compact">
+                  <li>
+                    <div>
+                      <strong>Attestation Predicate</strong>
+                      <span>{trustReport.attestations.predicateType}</span>
+                    </div>
+                  </li>
+                  <li>
+                    <div>
+                      <strong>Attestation Issuer</strong>
+                      <span>{trustReport.attestations.issuer ?? "Not declared"}</span>
+                    </div>
+                  </li>
+                </ul>
+              ) : null}
+            </article>
           </section>
         </>
       ) : null}
@@ -6189,6 +7754,145 @@ export default function App() {
                     </a>
                   </li>
                 ))}
+              </ul>
+            </article>
+          </section>
+
+          <section className="dual-grid">
+            <article className="panel">
+              <h2>Migration Imports</h2>
+              <p className="muted-note">Import existing servers from manual directories or SquidServers manifests.</p>
+              <form
+                className="grid-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void importManualMigration();
+                }}
+              >
+                <label>
+                  Server Name
+                  <input
+                    value={migrationManualForm.name}
+                    onChange={(event) =>
+                      setMigrationManualForm((previous) => ({
+                        ...previous,
+                        name: event.target.value
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  Type
+                  <select
+                    value={migrationManualForm.type}
+                    onChange={(event) =>
+                      setMigrationManualForm((previous) => ({
+                        ...previous,
+                        type: event.target.value as "vanilla" | "paper" | "fabric"
+                      }))
+                    }
+                  >
+                    <option value="paper">paper</option>
+                    <option value="vanilla">vanilla</option>
+                    <option value="fabric">fabric</option>
+                  </select>
+                </label>
+                <label>
+                  Minecraft Version
+                  <input
+                    value={migrationManualForm.mcVersion}
+                    onChange={(event) =>
+                      setMigrationManualForm((previous) => ({
+                        ...previous,
+                        mcVersion: event.target.value
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  Existing Root Path
+                  <input
+                    value={migrationManualForm.rootPath}
+                    onChange={(event) =>
+                      setMigrationManualForm((previous) => ({
+                        ...previous,
+                        rootPath: event.target.value
+                      }))
+                    }
+                    placeholder="/path/to/existing/server"
+                  />
+                </label>
+                <label>
+                  Java Path
+                  <input
+                    value={migrationManualForm.javaPath}
+                    onChange={(event) =>
+                      setMigrationManualForm((previous) => ({
+                        ...previous,
+                        javaPath: event.target.value
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  Jar Path (optional)
+                  <input
+                    value={migrationManualForm.jarPath}
+                    onChange={(event) =>
+                      setMigrationManualForm((previous) => ({
+                        ...previous,
+                        jarPath: event.target.value
+                      }))
+                    }
+                  />
+                </label>
+                <button type="submit" disabled={runningMigrationImport}>
+                  {runningMigrationImport ? "Importing..." : "Import Manual Server"}
+                </button>
+              </form>
+            </article>
+
+            <article className="panel">
+              <h2>SquidServers Migration</h2>
+              <form
+                className="grid-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void importSquidServersMigration();
+                }}
+              >
+                <label>
+                  Manifest Path
+                  <input
+                    value={migrationSquidManifestPath}
+                    onChange={(event) => setMigrationSquidManifestPath(event.target.value)}
+                    placeholder="/path/to/squidservers-manifest.json"
+                  />
+                </label>
+                <button type="submit" disabled={runningMigrationImport}>
+                  {runningMigrationImport ? "Importing..." : "Import SquidServers Manifest"}
+                </button>
+              </form>
+              <h3>Recent Import History</h3>
+              <ul className="list">
+                {migrationImports.map((entry) => (
+                  <li key={entry.id}>
+                    <div>
+                      <strong>{entry.name}</strong>
+                      <span>{entry.source} · {entry.status}</span>
+                      <span>{entry.detail}</span>
+                    </div>
+                    <span>{new Date(entry.createdAt).toLocaleString()}</span>
+                  </li>
+                ))}
+                {migrationImports.length === 0 ? (
+                  <li>
+                    <div>
+                      <strong>No migrations recorded yet</strong>
+                      <span>Successful and failed import attempts will appear here.</span>
+                    </div>
+                  </li>
+                ) : null}
               </ul>
             </article>
           </section>

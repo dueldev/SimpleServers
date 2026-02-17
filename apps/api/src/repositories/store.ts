@@ -3,10 +3,16 @@ import { nowIso, safeJsonStringify, uid } from "../lib/util.js";
 import type {
   AlertRecord,
   AuditRecord,
+  BackupRestoreEventRecord,
   BackupRetentionPolicyRecord,
   BackupRecord,
+  CloudBackupArtifactRecord,
+  CloudBackupDestinationRecord,
   CrashReportRecord,
   EditorFileSnapshotRecord,
+  MigrationImportRecord,
+  ModpackRollbackRecord,
+  PlayerAdminEventRecord,
   ServerPerformanceSampleRecord,
   ServerStartupEventRecord,
   ServerTickLagEventRecord,
@@ -14,6 +20,7 @@ import type {
   ServerRecord,
   TaskRecord,
   TunnelRecord,
+  TunnelStatusEventRecord,
   UxTelemetryEventRecord,
   UserRecord,
   UserRole
@@ -116,6 +123,80 @@ type RawServerTickLagEvent = {
   lag_ms: number;
   ticks_behind: number;
   line: string;
+  created_at: string;
+};
+
+type RawCloudBackupDestination = {
+  id: string;
+  server_id: string;
+  provider: CloudBackupDestinationRecord["provider"];
+  name: string;
+  config_json: string;
+  encryption_passphrase: string;
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+};
+
+type RawCloudBackupArtifact = {
+  id: string;
+  backup_id: string;
+  server_id: string;
+  destination_id: string;
+  remote_key: string;
+  checksum_sha256: string;
+  encrypted: number;
+  size_bytes: number;
+  metadata_json: string;
+  status: string;
+  uploaded_at: string;
+};
+
+type RawBackupRestoreEvent = {
+  id: string;
+  server_id: string;
+  backup_id: string | null;
+  source: BackupRestoreEventRecord["source"];
+  success: number;
+  verified: number;
+  detail: string;
+  duration_ms: number;
+  created_at: string;
+};
+
+type RawTunnelStatusEvent = {
+  id: string;
+  tunnel_id: string;
+  server_id: string;
+  status: string;
+  created_at: string;
+};
+
+type RawModpackRollback = {
+  id: string;
+  server_id: string;
+  package_id: string | null;
+  backup_id: string;
+  reason: string;
+  created_at: string;
+};
+
+type RawPlayerAdminEvent = {
+  id: string;
+  server_id: string;
+  kind: string;
+  subject: string;
+  detail: string;
+  created_at: string;
+};
+
+type RawMigrationImport = {
+  id: string;
+  source: string;
+  server_id: string | null;
+  name: string;
+  status: string;
+  detail: string;
   created_at: string;
 };
 
@@ -233,6 +314,94 @@ function toServerTickLagEvent(row: RawServerTickLagEvent): ServerTickLagEventRec
     lagMs: row.lag_ms,
     ticksBehind: row.ticks_behind,
     line: row.line,
+    createdAt: row.created_at
+  };
+}
+
+function toCloudBackupDestination(row: RawCloudBackupDestination): CloudBackupDestinationRecord {
+  return {
+    id: row.id,
+    serverId: row.server_id,
+    provider: row.provider,
+    name: row.name,
+    configJson: row.config_json,
+    encryptionPassphrase: row.encryption_passphrase,
+    enabled: row.enabled,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function toCloudBackupArtifact(row: RawCloudBackupArtifact): CloudBackupArtifactRecord {
+  return {
+    id: row.id,
+    backupId: row.backup_id,
+    serverId: row.server_id,
+    destinationId: row.destination_id,
+    remoteKey: row.remote_key,
+    checksumSha256: row.checksum_sha256,
+    encrypted: row.encrypted,
+    sizeBytes: row.size_bytes,
+    metadataJson: row.metadata_json,
+    status: row.status,
+    uploadedAt: row.uploaded_at
+  };
+}
+
+function toBackupRestoreEvent(row: RawBackupRestoreEvent): BackupRestoreEventRecord {
+  return {
+    id: row.id,
+    serverId: row.server_id,
+    backupId: row.backup_id,
+    source: row.source,
+    success: row.success,
+    verified: row.verified,
+    detail: row.detail,
+    durationMs: row.duration_ms,
+    createdAt: row.created_at
+  };
+}
+
+function toTunnelStatusEvent(row: RawTunnelStatusEvent): TunnelStatusEventRecord {
+  return {
+    id: row.id,
+    tunnelId: row.tunnel_id,
+    serverId: row.server_id,
+    status: row.status,
+    createdAt: row.created_at
+  };
+}
+
+function toModpackRollback(row: RawModpackRollback): ModpackRollbackRecord {
+  return {
+    id: row.id,
+    serverId: row.server_id,
+    packageId: row.package_id,
+    backupId: row.backup_id,
+    reason: row.reason,
+    createdAt: row.created_at
+  };
+}
+
+function toPlayerAdminEvent(row: RawPlayerAdminEvent): PlayerAdminEventRecord {
+  return {
+    id: row.id,
+    serverId: row.server_id,
+    kind: row.kind,
+    subject: row.subject,
+    detail: row.detail,
+    createdAt: row.created_at
+  };
+}
+
+function toMigrationImport(row: RawMigrationImport): MigrationImportRecord {
+  return {
+    id: row.id,
+    source: row.source,
+    serverId: row.server_id,
+    name: row.name,
+    status: row.status,
+    detail: row.detail,
     createdAt: row.created_at
   };
 }
@@ -615,6 +784,10 @@ export const store = {
       record.updatedAt
     );
 
+    db.prepare(
+      "INSERT INTO tunnel_status_events (id, tunnel_id, server_id, status, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).run(uid("tnlstat"), record.id, record.serverId, record.status, now);
+
     return record;
   },
 
@@ -638,7 +811,14 @@ export const store = {
   },
 
   updateTunnelStatus(id: string, status: string): void {
-    db.prepare("UPDATE tunnels SET status = ?, updated_at = ? WHERE id = ?").run(status, nowIso(), id);
+    const tunnel = this.getTunnel(id);
+    const now = nowIso();
+    db.prepare("UPDATE tunnels SET status = ?, updated_at = ? WHERE id = ?").run(status, now, id);
+    if (tunnel) {
+      db.prepare(
+        "INSERT INTO tunnel_status_events (id, tunnel_id, server_id, status, created_at) VALUES (?, ?, ?, ?, ?)"
+      ).run(uid("tnlstat"), tunnel.id, tunnel.serverId, status, now);
+    }
   },
 
   updateTunnelEndpoint(id: string, input: { publicHost: string; publicPort: number }): void {
@@ -1039,5 +1219,336 @@ export const store = {
 
     const rows = db.prepare("SELECT * FROM ux_telemetry_events ORDER BY created_at DESC LIMIT ?").all(limit) as RawUxTelemetryEvent[];
     return rows.map(toUxTelemetryEvent);
+  },
+
+  createCloudBackupDestination(input: {
+    serverId: string;
+    provider: CloudBackupDestinationRecord["provider"];
+    name: string;
+    configJson: string;
+    encryptionPassphrase: string;
+    enabled: boolean;
+  }): CloudBackupDestinationRecord {
+    const now = nowIso();
+    const record: CloudBackupDestinationRecord = {
+      id: uid("cldst"),
+      serverId: input.serverId,
+      provider: input.provider,
+      name: input.name,
+      configJson: input.configJson,
+      encryptionPassphrase: input.encryptionPassphrase,
+      enabled: input.enabled ? 1 : 0,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    db.prepare(
+      `INSERT INTO cloud_backup_destinations (
+        id, server_id, provider, name, config_json, encryption_passphrase, enabled, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      record.id,
+      record.serverId,
+      record.provider,
+      record.name,
+      record.configJson,
+      record.encryptionPassphrase,
+      record.enabled,
+      record.createdAt,
+      record.updatedAt
+    );
+
+    return record;
+  },
+
+  updateCloudBackupDestination(
+    id: string,
+    input: {
+      name: string;
+      configJson: string;
+      encryptionPassphrase: string;
+      enabled: boolean;
+    }
+  ): CloudBackupDestinationRecord | undefined {
+    db.prepare(
+      "UPDATE cloud_backup_destinations SET name = ?, config_json = ?, encryption_passphrase = ?, enabled = ?, updated_at = ? WHERE id = ?"
+    ).run(input.name, input.configJson, input.encryptionPassphrase, input.enabled ? 1 : 0, nowIso(), id);
+    return this.getCloudBackupDestination(id);
+  },
+
+  listCloudBackupDestinations(serverId: string): CloudBackupDestinationRecord[] {
+    const rows = db
+      .prepare("SELECT * FROM cloud_backup_destinations WHERE server_id = ? ORDER BY created_at DESC")
+      .all(serverId) as RawCloudBackupDestination[];
+    return rows.map(toCloudBackupDestination);
+  },
+
+  getCloudBackupDestination(id: string): CloudBackupDestinationRecord | undefined {
+    const row = db.prepare("SELECT * FROM cloud_backup_destinations WHERE id = ?").get(id) as RawCloudBackupDestination | undefined;
+    return row ? toCloudBackupDestination(row) : undefined;
+  },
+
+  deleteCloudBackupDestination(id: string): void {
+    db.prepare("DELETE FROM cloud_backup_destinations WHERE id = ?").run(id);
+  },
+
+  createCloudBackupArtifact(input: {
+    backupId: string;
+    serverId: string;
+    destinationId: string;
+    remoteKey: string;
+    checksumSha256: string;
+    encrypted: boolean;
+    sizeBytes: number;
+    metadataJson: string;
+    status: string;
+  }): CloudBackupArtifactRecord {
+    const record: CloudBackupArtifactRecord = {
+      id: uid("cldart"),
+      backupId: input.backupId,
+      serverId: input.serverId,
+      destinationId: input.destinationId,
+      remoteKey: input.remoteKey,
+      checksumSha256: input.checksumSha256,
+      encrypted: input.encrypted ? 1 : 0,
+      sizeBytes: input.sizeBytes,
+      metadataJson: input.metadataJson,
+      status: input.status,
+      uploadedAt: nowIso()
+    };
+
+    db.prepare(
+      `INSERT INTO cloud_backup_artifacts (
+        id, backup_id, server_id, destination_id, remote_key, checksum_sha256, encrypted, size_bytes, metadata_json, status, uploaded_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      record.id,
+      record.backupId,
+      record.serverId,
+      record.destinationId,
+      record.remoteKey,
+      record.checksumSha256,
+      record.encrypted,
+      record.sizeBytes,
+      record.metadataJson,
+      record.status,
+      record.uploadedAt
+    );
+
+    return record;
+  },
+
+  listCloudBackupArtifacts(serverId: string): CloudBackupArtifactRecord[] {
+    const rows = db
+      .prepare("SELECT * FROM cloud_backup_artifacts WHERE server_id = ? ORDER BY uploaded_at DESC")
+      .all(serverId) as RawCloudBackupArtifact[];
+    return rows.map(toCloudBackupArtifact);
+  },
+
+  getCloudBackupArtifact(id: string): CloudBackupArtifactRecord | undefined {
+    const row = db.prepare("SELECT * FROM cloud_backup_artifacts WHERE id = ?").get(id) as RawCloudBackupArtifact | undefined;
+    return row ? toCloudBackupArtifact(row) : undefined;
+  },
+
+  createBackupRestoreEvent(input: {
+    serverId: string;
+    backupId: string | null;
+    source: BackupRestoreEventRecord["source"];
+    success: boolean;
+    verified: boolean;
+    detail: string;
+    durationMs: number;
+    createdAt?: string;
+  }): BackupRestoreEventRecord {
+    const record: BackupRestoreEventRecord = {
+      id: uid("rstrev"),
+      serverId: input.serverId,
+      backupId: input.backupId,
+      source: input.source,
+      success: input.success ? 1 : 0,
+      verified: input.verified ? 1 : 0,
+      detail: input.detail,
+      durationMs: input.durationMs,
+      createdAt: input.createdAt ?? nowIso()
+    };
+
+    db.prepare(
+      "INSERT INTO backup_restore_events (id, server_id, backup_id, source, success, verified, detail, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(
+      record.id,
+      record.serverId,
+      record.backupId,
+      record.source,
+      record.success,
+      record.verified,
+      record.detail,
+      record.durationMs,
+      record.createdAt
+    );
+
+    return record;
+  },
+
+  listBackupRestoreEvents(input: {
+    serverId?: string;
+    since?: string;
+    limit?: number;
+  }): BackupRestoreEventRecord[] {
+    const limit = Math.max(1, Math.min(input.limit ?? 200, 5000));
+    const rows = input.serverId
+      ? input.since
+        ? (db
+            .prepare(
+              "SELECT * FROM backup_restore_events WHERE server_id = ? AND created_at >= ? ORDER BY created_at DESC LIMIT ?"
+            )
+            .all(input.serverId, input.since, limit) as RawBackupRestoreEvent[])
+        : (db
+            .prepare("SELECT * FROM backup_restore_events WHERE server_id = ? ORDER BY created_at DESC LIMIT ?")
+            .all(input.serverId, limit) as RawBackupRestoreEvent[])
+      : input.since
+        ? (db
+            .prepare("SELECT * FROM backup_restore_events WHERE created_at >= ? ORDER BY created_at DESC LIMIT ?")
+            .all(input.since, limit) as RawBackupRestoreEvent[])
+        : (db
+            .prepare("SELECT * FROM backup_restore_events ORDER BY created_at DESC LIMIT ?")
+            .all(limit) as RawBackupRestoreEvent[]);
+    return rows.map(toBackupRestoreEvent);
+  },
+
+  listTunnelStatusEvents(input: {
+    tunnelId?: string;
+    serverId?: string;
+    since?: string;
+    limit?: number;
+  }): TunnelStatusEventRecord[] {
+    const limit = Math.max(1, Math.min(input.limit ?? 500, 5000));
+
+    if (input.tunnelId) {
+      const rows = input.since
+        ? (db
+            .prepare(
+              "SELECT * FROM tunnel_status_events WHERE tunnel_id = ? AND created_at >= ? ORDER BY created_at DESC LIMIT ?"
+            )
+            .all(input.tunnelId, input.since, limit) as RawTunnelStatusEvent[])
+        : (db
+            .prepare("SELECT * FROM tunnel_status_events WHERE tunnel_id = ? ORDER BY created_at DESC LIMIT ?")
+            .all(input.tunnelId, limit) as RawTunnelStatusEvent[]);
+      return rows.map(toTunnelStatusEvent);
+    }
+
+    if (input.serverId) {
+      const rows = input.since
+        ? (db
+            .prepare(
+              "SELECT * FROM tunnel_status_events WHERE server_id = ? AND created_at >= ? ORDER BY created_at DESC LIMIT ?"
+            )
+            .all(input.serverId, input.since, limit) as RawTunnelStatusEvent[])
+        : (db
+            .prepare("SELECT * FROM tunnel_status_events WHERE server_id = ? ORDER BY created_at DESC LIMIT ?")
+            .all(input.serverId, limit) as RawTunnelStatusEvent[]);
+      return rows.map(toTunnelStatusEvent);
+    }
+
+    const rows = input.since
+      ? (db
+          .prepare("SELECT * FROM tunnel_status_events WHERE created_at >= ? ORDER BY created_at DESC LIMIT ?")
+          .all(input.since, limit) as RawTunnelStatusEvent[])
+      : (db.prepare("SELECT * FROM tunnel_status_events ORDER BY created_at DESC LIMIT ?").all(limit) as RawTunnelStatusEvent[]);
+    return rows.map(toTunnelStatusEvent);
+  },
+
+  createModpackRollback(input: {
+    serverId: string;
+    packageId: string | null;
+    backupId: string;
+    reason: string;
+  }): ModpackRollbackRecord {
+    const record: ModpackRollbackRecord = {
+      id: uid("mdrbk"),
+      serverId: input.serverId,
+      packageId: input.packageId,
+      backupId: input.backupId,
+      reason: input.reason,
+      createdAt: nowIso()
+    };
+
+    db.prepare(
+      "INSERT INTO modpack_rollbacks (id, server_id, package_id, backup_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run(record.id, record.serverId, record.packageId, record.backupId, record.reason, record.createdAt);
+
+    return record;
+  },
+
+  listModpackRollbacks(serverId: string, limit = 100): ModpackRollbackRecord[] {
+    const safeLimit = Math.max(1, Math.min(limit, 500));
+    const rows = db
+      .prepare("SELECT * FROM modpack_rollbacks WHERE server_id = ? ORDER BY created_at DESC LIMIT ?")
+      .all(serverId, safeLimit) as RawModpackRollback[];
+    return rows.map(toModpackRollback);
+  },
+
+  getModpackRollback(id: string): ModpackRollbackRecord | undefined {
+    const row = db.prepare("SELECT * FROM modpack_rollbacks WHERE id = ?").get(id) as RawModpackRollback | undefined;
+    return row ? toModpackRollback(row) : undefined;
+  },
+
+  createPlayerAdminEvent(input: {
+    serverId: string;
+    kind: string;
+    subject: string;
+    detail: string;
+  }): PlayerAdminEventRecord {
+    const record: PlayerAdminEventRecord = {
+      id: uid("plyevt"),
+      serverId: input.serverId,
+      kind: input.kind,
+      subject: input.subject,
+      detail: input.detail,
+      createdAt: nowIso()
+    };
+
+    db.prepare(
+      "INSERT INTO player_admin_events (id, server_id, kind, subject, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run(record.id, record.serverId, record.kind, record.subject, record.detail, record.createdAt);
+
+    return record;
+  },
+
+  listPlayerAdminEvents(serverId: string, limit = 200): PlayerAdminEventRecord[] {
+    const safeLimit = Math.max(1, Math.min(limit, 1000));
+    const rows = db
+      .prepare("SELECT * FROM player_admin_events WHERE server_id = ? ORDER BY created_at DESC LIMIT ?")
+      .all(serverId, safeLimit) as RawPlayerAdminEvent[];
+    return rows.map(toPlayerAdminEvent);
+  },
+
+  createMigrationImport(input: {
+    source: string;
+    serverId: string | null;
+    name: string;
+    status: string;
+    detail: string;
+  }): MigrationImportRecord {
+    const record: MigrationImportRecord = {
+      id: uid("migr"),
+      source: input.source,
+      serverId: input.serverId,
+      name: input.name,
+      status: input.status,
+      detail: input.detail,
+      createdAt: nowIso()
+    };
+
+    db.prepare(
+      "INSERT INTO migration_imports (id, source, server_id, name, status, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(record.id, record.source, record.serverId, record.name, record.status, record.detail, record.createdAt);
+
+    return record;
+  },
+
+  listMigrationImports(limit = 100): MigrationImportRecord[] {
+    const safeLimit = Math.max(1, Math.min(limit, 1000));
+    const rows = db.prepare("SELECT * FROM migration_imports ORDER BY created_at DESC LIMIT ?").all(safeLimit) as RawMigrationImport[];
+    return rows.map(toMigrationImport);
   }
 };
