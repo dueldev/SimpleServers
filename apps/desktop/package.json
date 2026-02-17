@@ -23,6 +23,7 @@
     "dist:publish": "npm run rebuild:native && electron-builder --config electron-builder.yml --publish always"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.750.0",
     "@fastify/cors": "^11.1.0",
     "@fastify/sensible": "^6.0.3",
     "@fastify/websocket": "^11.2.0",
