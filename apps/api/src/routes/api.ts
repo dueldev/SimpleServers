@@ -51,7 +51,7 @@ const maxEditableFileBytes = 1024 * 1024; // 1 MB safety guard for in-app editin
 const maxEditorFiles = 350;
 const maxEditorDepth = 5;
 const APP_VERSION = "0.5.4";
-const REPOSITORY_URL = "https://github.com/charlesshaw3/SimpleServers";
+const REPOSITORY_URL = "https://github.com/dueldev/SimpleServers";
 const SETUP_SESSION_TTL_MS = 15 * 60 * 1000;
 const WORKSPACE_SUMMARY_WINDOW_HOURS = 6;
 

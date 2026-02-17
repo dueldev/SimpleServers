@@ -773,7 +773,7 @@ test("connects and renders dashboard sections", async ({ page }) => {
           signatureStatus: "development",
           signatureProvider: null,
           releaseChannel: "stable",
-          repository: "https://github.com/charlesshaw3/SimpleServers",
+          repository: "https://github.com/dueldev/SimpleServers",
           signedRelease: false,
           signingMethod: null
         },

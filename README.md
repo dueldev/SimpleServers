@@ -4,8 +4,8 @@ SimpleServers is an open-source, local-first Minecraft server hosting and admini
 
 Latest stable desktop release: `v0.5.4`
 
-- Releases: `https://github.com/charlesshaw3/SimpleServers/releases`
-- Current release: `https://github.com/charlesshaw3/SimpleServers/releases/tag/v0.5.4`
+- Releases: `https://github.com/dueldev/SimpleServers/releases`
+- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.5.4`
 
 ## Production Highlights
 
