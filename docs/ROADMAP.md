@@ -2,7 +2,20 @@
 
 ## Status
 
-Current stable milestone: `v0.5.6` (validated by typecheck, build, API integration tests, web e2e, and UI live smoke).
+Current stable milestone: `v0.5.7` (validated by typecheck, build, API integration tests, web e2e, and UI live smoke).
+
+## Implemented in v0.5.7
+
+- Completed post-release verification pass focused on operational confidence:
+  - Playit quick-hosting flows remain green in API integration and web smoke paths.
+  - Player-admin profile actions remain green in API and web e2e flows.
+- Improved v2 `Console` tab command UX:
+  - Larger command composer layout with clearer command affordance.
+  - Explicit Enter-to-send interaction for faster command dispatch.
+  - Added quick command chips (`list`, `say`, `save-all`, `stop`) and clear action.
+- Added small v2 interaction polish:
+  - Improved console log readability and command panel spacing.
+  - Improved player-row hover clarity in workspace lists.
 
 ## Implemented in v0.5.6
 

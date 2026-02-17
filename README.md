@@ -2,10 +2,10 @@
 
 SimpleServers is an open-source, local-first Minecraft server hosting and administration platform.
 
-Latest stable desktop release: `v0.5.5`
+Latest stable desktop release: `v0.5.7`
 
 - Releases: `https://github.com/dueldev/SimpleServers/releases`
-- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.5.5`
+- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.5.7`
 
 ## Production Highlights
 
@@ -92,6 +92,14 @@ npm run test:ui:live
 
 ## Recent Release Notes
 
+- `v0.5.7`
+  - Verified Playit-first quick hosting flow and player-admin action paths through API integration + web e2e + live UI smoke gates.
+  - Improved v2 workspace console UX with a larger command composer, Enter-to-send behavior, quick command chips, and clearer send/clear actions.
+  - Added small v2 interaction polish for player rows and console readability to reduce friction in day-to-day operations.
+- `v0.5.6`
+  - Added runtime-derived online-player truth and capacity in v2 workspace/player contracts.
+  - Added v2 accessibility pass for dialog focus behavior, ARIA tabs, and skip-link/main landmark navigation.
+  - Added vendor-neutral migration naming with canonical `POST /migration/import/platform-manifest`.
 - `v0.5.5`
   - Defaulted public hosting to Playit for new servers with persisted provider settings and lifecycle auto-connect.
   - Added Playit legal consent surfaces in setup review and workspace networking settings.

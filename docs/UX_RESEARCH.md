@@ -1,6 +1,6 @@
-# UX Research Notes (v0.5.5)
+# UX Research Notes (v0.5.7)
 
-This document captures external product research and internal audits that informed the v2 shell rollout.
+This document captures external product research and internal audits that informed the v2 shell rollout and follow-up quality releases.
 
 ## Research Targets
 
@@ -77,6 +77,39 @@ Key takeaways:
 - Increased panel padding, vertical rhythm, and list row spacing to reduce scanning fatigue.
 - Preserved legacy shell unchanged as fallback while making v2 the complete primary surface.
 
+## v0.5.6 Follow-on Findings and Changes
+
+### Operational truth in workspace
+
+- Added runtime-derived online-player state to workspace summary contracts.
+- Separated online and known player lists to prevent stale known players from being shown as active users.
+- Added dedicated v2 workspace polling cadence for fresher operational data.
+
+### Accessibility and keyboard quality
+
+- Added dialog focus management and Escape handling in wizard/profile modal flows.
+- Upgraded workspace tabs to WAI-ARIA tab semantics with keyboard navigation support.
+- Added v2 skip-link/main landmark behavior for keyboard-first workflows.
+
+### Migration wording cleanup
+
+- Added vendor-neutral canonical import endpoint and copy:
+  - `POST /migration/import/platform-manifest`
+- Kept legacy aliases for compatibility while shifting user-facing language to platform manifest import.
+
+## v0.5.7 Validation and UX Refinements
+
+### Console interaction quality
+
+- Expanded v2 console composer and improved command-entry affordance.
+- Added Enter-to-send behavior for faster command dispatch.
+- Added quick command chips and clear action for repetitive operator workflows.
+
+### Small high-impact v2 polish
+
+- Improved console log readability and spacing rhythm.
+- Improved cached-player row hover affordance to make profile actions more discoverable.
+
 ## Validation
 
 The following were run after implementation:
@@ -85,3 +118,4 @@ The following were run after implementation:
 - `npm run build`
 - `npm run test:api`
 - `npm run test:e2e`
+- `npm run test:ui:live`

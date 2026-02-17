@@ -4786,8 +4786,8 @@ export default function App() {
         preflightIssues={preflight?.issues ?? []}
         onToggleLiveConsole={setLiveConsole}
         onTerminalCommandChange={setTerminalCommand}
-        onSendCommand={(event) => {
-          void sendServerTerminalCommand(event);
+        onSendCommand={() => {
+          void sendServerTerminalCommand();
         }}
         onRefreshLogs={() => {
           if (selectedServerId) {

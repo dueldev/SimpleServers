@@ -97,6 +97,7 @@ SimpleServers is a local-first control plane split into API, web UI, and desktop
   - focus restoration on close
 - Workspace tabs implement WAI-ARIA tab semantics (`tablist`/`tab`/`tabpanel`) with Arrow/Home/End keyboard navigation.
 - v2 shell includes skip-link and main landmark targeting for keyboard-first navigation.
+- Workspace console composer supports Enter-to-send for reduced operator friction during live command workflows.
 
 7. Public hosting consent and diagnostics
 

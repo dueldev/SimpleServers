@@ -3,7 +3,7 @@
 SimpleServers ships desktop artifacts via Electron Builder and GitHub Actions.
 
 Canonical repository: `https://github.com/dueldev/SimpleServers`
-Current stable tag: `v0.5.6`
+Current stable tag: `v0.5.7`
 
 ## Workflows
 
@@ -100,6 +100,10 @@ Default log paths:
 
 ## Recent Release Notes
 
+- `v0.5.7`
+  - Performed full release-gate verification for Playit-first hosting and player-admin modal flows (`typecheck`, API integration, web e2e, build, UI live smoke).
+  - Improved v2 console command UX with a larger composer, Enter-to-send interaction, quick command chips, and clearer send/clear controls.
+  - Added small v2 interaction polish for console readability and workspace player-row affordance.
 - `v0.5.6`
   - Added runtime-derived online-player truth and capacity in player/workspace API contracts (`onlinePlayers`, `onlineList`, `knownList`, resolved `capacity`).
   - Added v2 accessibility pass: shared dialog focus trap + Escape behavior, ARIA tab semantics with keyboard navigation, and v2 skip-link/main landmark targeting.

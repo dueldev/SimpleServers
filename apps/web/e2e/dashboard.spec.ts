@@ -863,7 +863,7 @@ test("connects and renders dashboard sections", async ({ page }) => {
       await withJson(200, {
         generatedAt: new Date().toISOString(),
         build: {
-          appVersion: "0.5.6",
+          appVersion: "0.5.7",
           platform: "darwin",
           arch: "arm64",
           nodeVersion: "v20.0.0",
@@ -1149,7 +1149,7 @@ test("connects and renders dashboard sections", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Preflight Diagnostics" })).toBeVisible();
   await page.getByLabel("Command").fill("say e2e command");
-  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByLabel("Command").press("Enter");
   await expect.poll(() => commandCalled).toBe(true);
 
   await page.evaluate(() => {

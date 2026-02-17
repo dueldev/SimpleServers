@@ -1,4 +1,4 @@
-import { FormEvent } from "react";
+import { KeyboardEvent } from "react";
 
 type PreflightIssue = {
   code: string;
@@ -21,7 +21,7 @@ type ConsoleTabProps = {
   preflightIssues: PreflightIssue[];
   onToggleLiveConsole: (enabled: boolean) => void;
   onTerminalCommandChange: (value: string) => void;
-  onSendCommand: (event: FormEvent) => void;
+  onSendCommand: () => void;
   onRefreshLogs: () => void;
 };
 
@@ -38,6 +38,19 @@ export function ConsoleTab(props: ConsoleTabProps) {
     onSendCommand,
     onRefreshLogs
   } = props;
+  const trimmedCommand = terminalCommand.trim();
+  const canSendCommand = trimmedCommand.length > 0 && !sendingTerminalCommand;
+  const quickCommands = ["list", "say Server restart in 5m", "save-all", "stop"];
+
+  const handleCommandKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    if (canSendCommand) {
+      onSendCommand();
+    }
+  };
 
   return (
     <section className="v2-console-tab">
@@ -61,20 +74,43 @@ export function ConsoleTab(props: ConsoleTabProps) {
           {logs.length === 0 ? <div>No log lines yet.</div> : null}
         </div>
         <form
-          className="inline-actions"
+          className="v2-console-composer"
           onSubmit={(event) => {
             event.preventDefault();
-            onSendCommand(event);
+            if (canSendCommand) {
+              onSendCommand();
+            }
           }}
         >
-          <label className="compact-field">
+          <label className="v2-console-command-field">
             Command
-            <input value={terminalCommand} onChange={(event) => onTerminalCommandChange(event.target.value)} placeholder="say hello world" />
+            <input
+              value={terminalCommand}
+              onChange={(event) => onTerminalCommandChange(event.target.value)}
+              onKeyDown={handleCommandKeyDown}
+              placeholder="say hello world"
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <span className="muted-note">Press Enter to send quickly.</span>
           </label>
-          <button type="submit" disabled={sendingTerminalCommand}>
-            {sendingTerminalCommand ? "Sending..." : "Send"}
-          </button>
+          <div className="v2-console-command-actions">
+            <button type="submit" disabled={!canSendCommand}>
+              {sendingTerminalCommand ? "Sending..." : "Send"}
+            </button>
+            <button type="button" disabled={sendingTerminalCommand || terminalCommand.length === 0} onClick={() => onTerminalCommandChange("")}>
+              Clear
+            </button>
+          </div>
         </form>
+        <div className="v2-console-quick-actions">
+          <span className="muted-note">Quick commands</span>
+          {quickCommands.map((command) => (
+            <button key={command} type="button" onClick={() => onTerminalCommandChange(command)} disabled={sendingTerminalCommand}>
+              {command}
+            </button>
+          ))}
+        </div>
       </article>
 
       <article className="panel">

@@ -318,6 +318,54 @@
   gap: var(--space-5);
 }
 
+.v2-console-tab .log-box {
+  min-height: 260px;
+  max-height: 420px;
+  padding: var(--space-4);
+}
+
+.v2-console-tab .log-box div {
+  line-height: 1.6;
+}
+
+.v2-console-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  align-items: end;
+}
+
+.v2-console-command-field {
+  min-width: 0;
+}
+
+.v2-console-command-field input {
+  width: 100%;
+}
+
+.v2-console-command-actions {
+  display: inline-flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.v2-console-command-actions button {
+  min-width: 96px;
+}
+
+.v2-console-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.v2-console-quick-actions button {
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+
 .v2-metric-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -390,6 +438,12 @@
 
 .player-row-btn span {
   color: var(--text-soft);
+}
+
+.player-row-btn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--primary) 62%, var(--border));
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  transform: none;
 }
 
 .v2-modal-backdrop {
@@ -472,5 +526,17 @@
 
   .v2-connection-form {
     grid-template-columns: 1fr;
+  }
+
+  .v2-console-composer {
+    grid-template-columns: 1fr;
+  }
+
+  .v2-console-command-actions {
+    justify-content: stretch;
+  }
+
+  .v2-console-command-actions button {
+    flex: 1 1 0;
   }
 }

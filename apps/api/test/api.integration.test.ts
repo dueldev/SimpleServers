@@ -92,7 +92,7 @@ describe("api integration", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().build.appVersion).toBe("0.5.6");
+    expect(response.json().build.appVersion).toBe("0.5.7");
     expect(response.json().security.localOnlyByDefault).toBe(true);
     expect(response.json().security.authModel).toBe("token-rbac");
     expect(response.json().exports.auditExportEndpoint).toBe("/audit/export");
