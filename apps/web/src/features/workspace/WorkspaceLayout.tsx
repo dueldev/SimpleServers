@@ -1,6 +1,6 @@
 import { type KeyboardEvent, type ReactNode, useId } from "react";
 
-export type WorkspaceTab = "dashboard" | "console" | "players" | "backups" | "scheduler" | "settings";
+export type WorkspaceTab = "dashboard" | "console" | "players" | "plugins" | "backups" | "scheduler" | "settings";
 
 type WorkspacePlayer = {
   name: string;
@@ -15,6 +15,7 @@ type WorkspaceLayoutProps = {
   playerCapacityLabel: string;
   canStart: boolean;
   canStop: boolean;
+  onOpenServers: () => void;
   onStart: () => void;
   onStop: () => void;
   onRestart: () => void;
@@ -32,6 +33,7 @@ const tabs: Array<{ id: WorkspaceTab; label: string }> = [
   { id: "dashboard", label: "Dashboard" },
   { id: "console", label: "Console" },
   { id: "players", label: "Players" },
+  { id: "plugins", label: "Plugins" },
   { id: "backups", label: "Backups" },
   { id: "scheduler", label: "Scheduler" },
   { id: "settings", label: "Settings" }
@@ -46,6 +48,7 @@ export function WorkspaceLayout(props: WorkspaceLayoutProps) {
     playerCapacityLabel,
     canStart,
     canStop,
+    onOpenServers,
     onStart,
     onStop,
     onRestart,
@@ -105,6 +108,9 @@ export function WorkspaceLayout(props: WorkspaceLayoutProps) {
             Java <code>{publicAddress ?? "No invite address yet"}</code>
           </span>
           <span className="status-pill tone-neutral">{playerCapacityLabel}</span>
+          <button type="button" onClick={onOpenServers}>
+            All Servers
+          </button>
         </div>
       </header>
 

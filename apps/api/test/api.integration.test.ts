@@ -92,7 +92,7 @@ describe("api integration", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().build.appVersion).toBe("0.5.7");
+    expect(response.json().build.appVersion).toBe("0.5.8");
     expect(response.json().security.localOnlyByDefault).toBe(true);
     expect(response.json().security.authModel).toBe("token-rbac");
     expect(response.json().exports.auditExportEndpoint).toBe("/audit/export");
@@ -1522,6 +1522,60 @@ describe("api integration", () => {
     expect(response.json().failed).toBe(0);
   });
 
+  it("supports multi-server bulk delete actions", async () => {
+    const rootA = path.join(testDataDir, "servers", "bulk-delete-a");
+    const rootB = path.join(testDataDir, "servers", "bulk-delete-b");
+    fs.mkdirSync(rootA, { recursive: true });
+    fs.mkdirSync(rootB, { recursive: true });
+    fs.writeFileSync(path.join(rootA, "server.jar"), "placeholder", "utf8");
+    fs.writeFileSync(path.join(rootB, "server.jar"), "placeholder", "utf8");
+
+    const serverA = store.createServer({
+      name: "bulk-delete-a",
+      type: "paper",
+      mcVersion: "1.21.11",
+      jarPath: path.join(rootA, "server.jar"),
+      rootPath: rootA,
+      javaPath: "java",
+      port: 25642,
+      bedrockPort: null,
+      minMemoryMb: 1024,
+      maxMemoryMb: 2048
+    });
+    const serverB = store.createServer({
+      name: "bulk-delete-b",
+      type: "paper",
+      mcVersion: "1.21.11",
+      jarPath: path.join(rootB, "server.jar"),
+      rootPath: rootB,
+      javaPath: "java",
+      port: 25643,
+      bedrockPort: null,
+      minMemoryMb: 1024,
+      maxMemoryMb: 2048
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/servers/bulk-action",
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {
+        action: "delete",
+        serverIds: [serverA.id, serverB.id]
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().action).toBe("delete");
+    expect(response.json().succeeded).toBe(2);
+    expect(store.getServerById(serverA.id)).toBeUndefined();
+    expect(store.getServerById(serverB.id)).toBeUndefined();
+    expect(fs.existsSync(rootA)).toBe(false);
+    expect(fs.existsSync(rootB)).toBe(false);
+  });
+
   it("returns a per-server performance advisor summary", async () => {
     const serverRoot = path.join(testDataDir, "servers", "advisor-server");
     fs.mkdirSync(serverRoot, { recursive: true });
@@ -1981,6 +2035,75 @@ describe("api integration", () => {
     });
 
     expect(response.statusCode).toBe(404);
+  });
+
+  it("supports batch plugin install endpoint", async () => {
+    const serverRoot = path.join(testDataDir, "servers", "batch-plugin-server");
+    fs.mkdirSync(serverRoot, { recursive: true });
+    fs.writeFileSync(path.join(serverRoot, "server.jar"), "placeholder", "utf8");
+    fs.writeFileSync(path.join(serverRoot, "eula.txt"), "eula=true\n", "utf8");
+
+    const server = store.createServer({
+      name: "batch-plugin-server",
+      type: "paper",
+      mcVersion: "1.21.11",
+      jarPath: path.join(serverRoot, "server.jar"),
+      rootPath: serverRoot,
+      javaPath: "java",
+      port: 25644,
+      bedrockPort: null,
+      minMemoryMb: 1024,
+      maxMemoryMb: 2048
+    });
+
+    const originalInstallBatch = services.content.installPackageBatch.bind(services.content);
+    services.content.installPackageBatch = async ({ serverId, items }) => ({
+      summary: {
+        total: items.length,
+        succeeded: items.length,
+        failed: 0
+      },
+      results: items.map((item, index) => ({
+        projectId: item.projectId,
+        provider: item.provider ?? "modrinth",
+        ok: true,
+        install: {
+          packageId: `pkg-${String(index + 1)}`,
+          serverId,
+          provider: item.provider ?? "modrinth",
+          projectId: item.projectId,
+          versionId: item.requestedVersionId ?? "latest",
+          filePath: path.join(serverRoot, "plugins", `${item.projectId}.jar`)
+        }
+      }))
+    });
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: `/servers/${server.id}/packages/install-batch`,
+        headers: {
+          "x-api-token": "test-owner-token"
+        },
+        payload: {
+          items: [
+            { projectId: "geyser", kind: "plugin" },
+            { projectId: "floodgate", kind: "plugin" }
+          ]
+        }
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().summary).toMatchObject({
+        total: 2,
+        succeeded: 2,
+        failed: 0
+      });
+      expect(response.json().results).toHaveLength(2);
+      expect(response.json().results[0].provider).toBe("modrinth");
+    } finally {
+      services.content.installPackageBatch = originalInstallBatch;
+    }
   });
 
   it("blocks non-local requests when remote mode is disabled", async () => {

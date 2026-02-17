@@ -8,6 +8,7 @@ test("connects and renders dashboard sections", async ({ page }) => {
   let telemetryPosted = false;
   let bulkCalled = false;
   let commandCalled = false;
+  let installBatchCalled = false;
   let cloudDestinationSaved = false;
   let cloudUploadCalled = false;
   let modpackPlanCalled = false;
@@ -89,7 +90,8 @@ test("connects and renders dashboard sections", async ({ page }) => {
             minMemoryMb: 1024,
             maxMemoryMb: 4096,
             status: "running",
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            rootPath: "/tmp/srv_1"
           }
         ]
       });
@@ -109,7 +111,8 @@ test("connects and renders dashboard sections", async ({ page }) => {
           minMemoryMb: 2048,
           maxMemoryMb: 4096,
           status: "running",
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          rootPath: "/tmp/srv_1"
         },
         started: true,
         blocked: false,
@@ -148,7 +151,8 @@ test("connects and renders dashboard sections", async ({ page }) => {
           minMemoryMb: 2048,
           maxMemoryMb: 4096,
           status: "running",
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          rootPath: "/tmp/srv_1"
         },
         started: true,
         blocked: false,
@@ -863,7 +867,7 @@ test("connects and renders dashboard sections", async ({ page }) => {
       await withJson(200, {
         generatedAt: new Date().toISOString(),
         build: {
-          appVersion: "0.5.7",
+          appVersion: "0.5.8",
           platform: "darwin",
           arch: "arm64",
           nodeVersion: "v20.0.0",
@@ -1075,15 +1079,54 @@ test("connects and renders dashboard sections", async ({ page }) => {
         results: [
           {
             provider: "modrinth",
-            projectId: "AANobbMI",
-            slug: "sodium",
-            name: "Sodium",
-            summary: "Rendering optimization mod",
-            kind: "mod",
+            projectId: "geyser",
+            slug: "geyser",
+            name: "Geyser",
+            summary: "Bedrock support bridge plugin",
+            kind: "plugin",
             iconUrl: null,
             downloads: 1000000,
             latestVersionId: "ver_1",
             compatible: true
+          },
+          {
+            provider: "modrinth",
+            projectId: "floodgate",
+            slug: "floodgate",
+            name: "Floodgate",
+            summary: "Authentication bridge for Bedrock players",
+            kind: "plugin",
+            iconUrl: null,
+            downloads: 1000000,
+            latestVersionId: "ver_1",
+            compatible: true
+          }
+        ]
+      });
+      return;
+    }
+
+    if (pathname === "/servers/srv_1/packages/install-batch" && method === "POST") {
+      installBatchCalled = true;
+      await withJson(200, {
+        summary: {
+          total: 1,
+          succeeded: 1,
+          failed: 0
+        },
+        results: [
+          {
+            projectId: "geyser",
+            provider: "modrinth",
+            ok: true,
+            install: {
+              packageId: "pkg_1",
+              serverId: "srv_1",
+              provider: "modrinth",
+              projectId: "geyser",
+              versionId: "ver_1",
+              filePath: "/tmp/srv_1/plugins/geyser.jar"
+            }
           }
         ]
       });
@@ -1132,7 +1175,7 @@ test("connects and renders dashboard sections", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Servers", exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Open Workspace" }).first().click();
+  await page.getByRole("button", { name: "Workspace" }).first().click();
   await expect(page.getByRole("heading", { name: "Server Controls" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open player profile for Alice" })).toBeVisible();
   await expect.poll(async () => page.getByRole("button", { name: "Open player profile for Bob" }).count()).toBeGreaterThan(0);
@@ -1151,6 +1194,14 @@ test("connects and renders dashboard sections", async ({ page }) => {
   await page.getByLabel("Command").fill("say e2e command");
   await page.getByLabel("Command").press("Enter");
   await expect.poll(() => commandCalled).toBe(true);
+
+  await page.getByRole("tab", { name: "Plugins" }).click();
+  await expect(page.getByRole("heading", { name: "Plugin Discovery" })).toBeVisible();
+  await page.getByLabel("Search plugins").fill("geyser");
+  await page.getByRole("button", { name: "Search" }).click();
+  await page.getByRole("checkbox", { name: "Select" }).first().check();
+  await page.getByRole("button", { name: "Install Selected (1)" }).click();
+  await expect.poll(() => installBatchCalled).toBe(true);
 
   await page.evaluate(() => {
     window.location.hash = "#servers-list";

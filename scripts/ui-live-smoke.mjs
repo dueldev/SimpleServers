@@ -69,7 +69,7 @@ async function runDesktopSmoke(browser) {
   await page.getByText("CONNECTED").first().waitFor({ timeout: 20_000 });
   await page.getByRole("heading", { name: "Servers", exact: true }).waitFor({ timeout: 20_000 });
 
-  const openWorkspaceButtons = page.getByRole("button", { name: "Open Workspace" });
+  const openWorkspaceButtons = page.getByRole("button", { name: /^Workspace$/ });
   if ((await openWorkspaceButtons.count()) > 0) {
     await openWorkspaceButtons.first().click();
     await page.getByRole("heading", { name: "Server Controls" }).waitFor({ timeout: 20_000 });
@@ -81,7 +81,7 @@ async function runDesktopSmoke(browser) {
     }
     await page.getByRole("heading", { name: "Preflight Diagnostics" }).waitFor({ timeout: 20_000 });
   } else {
-    const createButtons = page.getByRole("button", { name: /Create Server|Create Your First Server/ });
+    const createButtons = page.getByRole("button", { name: /Create Server|Create Your First Server|Open Setup Wizard/ });
     if ((await createButtons.count()) === 0) {
       throw new Error("Neither workspace nor create entry points were visible in v2 shell.");
     }
@@ -98,12 +98,12 @@ async function runMobileSmoke(browser) {
   await page.getByText("CONNECTED").first().waitFor({ timeout: 20_000 });
   await page.getByRole("heading", { name: "Servers", exact: true }).waitFor({ timeout: 20_000 });
 
-  const createButtons = page.getByRole("button", { name: /Create Server|Create Your First Server/ });
+  const createButtons = page.getByRole("button", { name: /Create Server|Create Your First Server|Open Setup Wizard/ });
   if ((await createButtons.count()) > 0) {
     await createButtons.first().click();
     await page.getByRole("heading", { name: "Minecraft Server Setup Wizard" }).waitFor({ timeout: 20_000 });
   } else {
-    const openWorkspaceButtons = page.getByRole("button", { name: "Open Workspace" });
+    const openWorkspaceButtons = page.getByRole("button", { name: /^Workspace$/ });
     if ((await openWorkspaceButtons.count()) > 0) {
       await openWorkspaceButtons.first().click();
       await page.getByRole("heading", { name: "Server Controls" }).waitFor({ timeout: 20_000 });

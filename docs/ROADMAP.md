@@ -2,7 +2,24 @@
 
 ## Status
 
-Current stable milestone: `v0.5.7` (validated by typecheck, build, API integration tests, web e2e, and UI live smoke).
+Current stable milestone: `v0.5.8` (validated by typecheck, build, API integration tests, web e2e, and UI live smoke).
+
+## Implemented in v0.5.8
+
+- Upgraded the v2 `Servers` page into an operations hub:
+  - Added summary strip (`total`, `running`, `stopped`, `crashed`) for at-a-glance status.
+  - Added row actions (`Workspace`, `Start`, `Stop`, `Restart`, `Open Folder` desktop-only, `Delete`).
+  - Added multi-select bulk operations (`Start`, `Stop`, `Restart`, `Backup`, `Go Live`, `Delete`) with sticky action bar.
+  - Replaced untyped destructive prompts in v2 with typed hard-delete confirmations for single and bulk delete.
+- Added dedicated v2 `Plugins` workspace tab:
+  - Modrinth-first plugin discovery/search with featured filter chips.
+  - Multi-select one-click install via new batch install API.
+  - Installed plugins panel with update/remove actions.
+- Added additive API capabilities for v2 workflows:
+  - `POST /servers/:id/packages/install-batch`
+  - `POST /servers/bulk-action` now supports `delete`
+- Added desktop-only folder opening for server roots via Electron IPC (`simpleservers:open-path`) and v2 UI integration.
+- Extended v2 spacing/hierarchy polish in server rows, bulk controls, plugin cards, and tab content rhythm.
 
 ## Implemented in v0.5.7
 

@@ -44,6 +44,21 @@ export type InstallResult = {
   filePath: string;
 };
 
+export type BatchInstallRequestItem = {
+  provider?: ContentProvider;
+  projectId: string;
+  requestedVersionId?: string;
+  kind?: PackageKind;
+};
+
+export type BatchInstallResultItem = {
+  projectId: string;
+  provider: ContentProvider;
+  ok: boolean;
+  install?: InstallResult;
+  error?: string;
+};
+
 function getLoaderHints(server: ServerRecord): string[] {
   if (server.type === "paper") {
     return ["paper", "spigot", "bukkit", "purpur"];
@@ -408,6 +423,56 @@ export class ContentCatalogService {
       projectId: input.projectId,
       versionId: version.versionId,
       filePath: outputPath
+    };
+  }
+
+  async installPackageBatch(input: {
+    serverId: string;
+    items: BatchInstallRequestItem[];
+  }): Promise<{
+    summary: {
+      total: number;
+      succeeded: number;
+      failed: number;
+    };
+    results: BatchInstallResultItem[];
+  }> {
+    const results: BatchInstallResultItem[] = [];
+
+    for (const item of input.items) {
+      const provider = item.provider ?? "modrinth";
+      try {
+        const install = await this.installPackage({
+          serverId: input.serverId,
+          provider,
+          projectId: item.projectId,
+          requestedVersionId: item.requestedVersionId,
+          kind: item.kind
+        });
+        results.push({
+          projectId: item.projectId,
+          provider,
+          ok: true,
+          install
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        results.push({
+          projectId: item.projectId,
+          provider,
+          ok: false,
+          error: message
+        });
+      }
+    }
+
+    return {
+      summary: {
+        total: results.length,
+        succeeded: results.filter((entry) => entry.ok).length,
+        failed: results.filter((entry) => !entry.ok).length
+      },
+      results
     };
   }
 

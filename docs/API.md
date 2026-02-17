@@ -59,7 +59,7 @@ Error responses include:
 - `GET /servers`
 - `POST /servers` (`admin`)
 - `POST /servers/quickstart` (`admin`, one-call create + optional start + optional quick-host enable)
-- `POST /servers/bulk-action` (`admin`, actions: `start`, `stop`, `restart`, `backup`, `goLive`)
+- `POST /servers/bulk-action` (`admin`, actions: `start`, `stop`, `restart`, `backup`, `goLive`, `delete`)
 - `DELETE /servers/:id?deleteFiles=<bool>&deleteBackups=<bool>` (`admin`, defaults `true/true`)
 - `POST /servers/:id/start` (`moderator`)
 - `POST /servers/:id/stop` (`moderator`)
@@ -220,8 +220,18 @@ Providers:
 - `GET /servers/:id/packages`
 - `GET /servers/:id/packages/updates`
 - `POST /servers/:id/packages/install` (`admin`)
+- `POST /servers/:id/packages/install-batch` (`admin`, sequential non-fail-fast batch install with partial-success summary)
 - `POST /servers/:id/packages/:packageId/update` (`admin`)
 - `DELETE /servers/:id/packages/:packageId` (`admin`)
+
+Batch install request shape:
+
+- `items[]`: `{ provider?: "modrinth" | "curseforge", projectId: string, kind: "plugin", requestedVersionId?: string }`
+
+Batch install response shape:
+
+- `summary`: `{ total, succeeded, failed }`
+- `results[]`: `{ projectId, provider, ok, install?, error? }`
 
 ## Modpack Workflows
 

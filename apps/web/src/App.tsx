@@ -7,10 +7,12 @@ import { WorkspaceLayout, type WorkspaceTab } from "./features/workspace/Workspa
 import { DashboardTab } from "./features/workspace/tabs/DashboardTab";
 import { ConsoleTab } from "./features/workspace/tabs/ConsoleTab";
 import { PlayersTab } from "./features/workspace/tabs/PlayersTab";
+import { PluginsTab } from "./features/workspace/tabs/PluginsTab";
 import { BackupsTab } from "./features/workspace/tabs/BackupsTab";
 import { SchedulerTab } from "./features/workspace/tabs/SchedulerTab";
 import { SettingsTab } from "./features/workspace/tabs/SettingsTab";
 import { PlayerProfileModal } from "./features/workspace/components/PlayerProfileModal";
+import { DeleteConfirmModal } from "./features/common/DeleteConfirmModal";
 
 type Server = {
   id: string;
@@ -23,6 +25,7 @@ type Server = {
   maxMemoryMb: number;
   status: string;
   createdAt: string;
+  rootPath: string;
 };
 
 type Alert = {
@@ -642,7 +645,7 @@ type GoLiveResult = {
 type ExperienceMode = "beginner" | "advanced";
 type ThemePreference = "colorful" | "dark" | "light" | "system";
 
-type BulkServerAction = "start" | "stop" | "restart" | "backup" | "goLive";
+type BulkServerAction = "start" | "stop" | "restart" | "backup" | "goLive" | "delete";
 
 type BulkServerActionResult = {
   serverId: string;
@@ -660,6 +663,35 @@ type BulkServerActionResponse = {
   succeeded: number;
   failed: number;
   results: BulkServerActionResult[];
+};
+
+type PackageInstallBatchResponse = {
+  summary: {
+    total: number;
+    succeeded: number;
+    failed: number;
+  };
+  results: Array<{
+    projectId: string;
+    provider: "modrinth" | "curseforge";
+    ok: boolean;
+    install?: {
+      packageId: string;
+      serverId: string;
+      provider: "modrinth" | "curseforge";
+      projectId: string;
+      versionId: string;
+      filePath: string;
+    };
+    error?: string;
+  }>;
+};
+
+type DeleteModalState = {
+  mode: "single" | "bulk";
+  serverIds: string[];
+  title: string;
+  detail: string;
 };
 
 type PerformanceAdvisorReport = {
@@ -785,6 +817,7 @@ type DesktopBridgeInfo = {
   appVersion?: string;
   packaged?: boolean;
   signatureStatus?: string;
+  openPath?: (targetPath: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
 type EditorFileSnapshot = {
@@ -806,7 +839,15 @@ type CommandPaletteAction = {
 const V2_DEFAULT_TAB: WorkspaceTab = "dashboard";
 
 function isWorkspaceTab(value: string | undefined): value is WorkspaceTab {
-  return value === "dashboard" || value === "console" || value === "players" || value === "backups" || value === "scheduler" || value === "settings";
+  return (
+    value === "dashboard" ||
+    value === "console" ||
+    value === "players" ||
+    value === "plugins" ||
+    value === "backups" ||
+    value === "scheduler" ||
+    value === "settings"
+  );
 }
 
 function parseV2Route(hash: string): V2RouteState {
@@ -1230,6 +1271,16 @@ export default function App() {
     query: "essential",
     kind: "mod" as "mod" | "plugin" | "modpack" | "resourcepack"
   });
+  const [pluginsQuery, setPluginsQuery] = useState("essentials");
+  const [pluginsResults, setPluginsResults] = useState<ContentSearchResult[]>([]);
+  const [pluginsHasSearched, setPluginsHasSearched] = useState(false);
+  const [pluginsSearching, setPluginsSearching] = useState(false);
+  const [selectedPluginProjectIds, setSelectedPluginProjectIds] = useState<string[]>([]);
+  const [installingSelectedPlugins, setInstallingSelectedPlugins] = useState(false);
+  const [installingPluginProjectId, setInstallingPluginProjectId] = useState<string | null>(null);
+  const [runningPluginPackageActionId, setRunningPluginPackageActionId] = useState<string | null>(null);
+  const [deleteModal, setDeleteModal] = useState<DeleteModalState | null>(null);
+  const [deleteConfirmToken, setDeleteConfirmToken] = useState("");
   const [modpackForm, setModpackForm] = useState({
     provider: "modrinth" as "modrinth" | "curseforge",
     projectId: "",
@@ -1919,6 +1970,79 @@ export default function App() {
     }
   }
 
+  async function searchPlugins(nextQuery?: string): Promise<void> {
+    const queryValue = (nextQuery ?? pluginsQuery).trim();
+    if (!selectedServerId || queryValue.length === 0) {
+      return;
+    }
+
+    try {
+      setPluginsSearching(true);
+      setPluginsHasSearched(true);
+      const query = new URLSearchParams({
+        provider: "modrinth",
+        q: queryValue,
+        serverId: selectedServerId,
+        kind: "plugin",
+        limit: "24"
+      });
+      const response = await api.current.get<{ results: ContentSearchResult[] }>(`/content/search?${query.toString()}`);
+      const pluginRows = response.results.filter((entry) => entry.kind === "plugin");
+      setPluginsResults(pluginRows);
+      setSelectedPluginProjectIds((previous) => previous.filter((projectId) => pluginRows.some((row) => row.projectId === projectId)));
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPluginsSearching(false);
+    }
+  }
+
+  function toggleSelectedPlugin(projectId: string): void {
+    setSelectedPluginProjectIds((previous) => {
+      if (previous.includes(projectId)) {
+        return previous.filter((entry) => entry !== projectId);
+      }
+      return [...previous, projectId];
+    });
+  }
+
+  async function installSelectedPlugins(): Promise<void> {
+    if (!selectedServerId || selectedPluginProjectIds.length === 0) {
+      return;
+    }
+
+    try {
+      setInstallingSelectedPlugins(true);
+      const response = await api.current.post<PackageInstallBatchResponse>(`/servers/${selectedServerId}/packages/install-batch`, {
+        items: selectedPluginProjectIds.map((projectId) => ({
+          provider: "modrinth",
+          projectId,
+          kind: "plugin"
+        }))
+      });
+      await refreshPackages(selectedServerId);
+      await refreshAll();
+      const failed = response.results.filter((entry) => !entry.ok);
+      if (failed.length > 0) {
+        setNotice(
+          `Installed ${response.summary.succeeded}/${response.summary.total} plugins. Issues: ${failed
+            .slice(0, 3)
+            .map((entry) => `${entry.projectId}: ${entry.error ?? "install failed"}`)
+            .join(" | ")}${failed.length > 3 ? " ..." : ""}`
+        );
+      } else {
+        setNotice(`Installed ${response.summary.succeeded} plugin${response.summary.succeeded === 1 ? "" : "s"}.`);
+      }
+      setSelectedPluginProjectIds([]);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setInstallingSelectedPlugins(false);
+    }
+  }
+
   async function installPackage(provider: "modrinth" | "curseforge", projectId: string, kind: ContentSearchResult["kind"]): Promise<void> {
     if (!selectedServerId) {
       return;
@@ -1937,6 +2061,15 @@ export default function App() {
     }
   }
 
+  async function installOnePlugin(projectId: string): Promise<void> {
+    try {
+      setInstallingPluginProjectId(projectId);
+      await installPackage("modrinth", projectId, "plugin");
+    } finally {
+      setInstallingPluginProjectId(null);
+    }
+  }
+
   async function updatePackage(packageId: string): Promise<void> {
     if (!selectedServerId) {
       return;
@@ -1951,6 +2084,15 @@ export default function App() {
     }
   }
 
+  async function updateInstalledPlugin(packageId: string): Promise<void> {
+    try {
+      setRunningPluginPackageActionId(packageId);
+      await updatePackage(packageId);
+    } finally {
+      setRunningPluginPackageActionId(null);
+    }
+  }
+
   async function uninstallPackage(packageId: string): Promise<void> {
     if (!selectedServerId) {
       return;
@@ -1962,6 +2104,15 @@ export default function App() {
       await refreshAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function removeInstalledPlugin(packageId: string): Promise<void> {
+    try {
+      setRunningPluginPackageActionId(packageId);
+      await uninstallPackage(packageId);
+    } finally {
+      setRunningPluginPackageActionId(null);
     }
   }
 
@@ -2023,11 +2174,27 @@ export default function App() {
   useEffect(() => {
     setHasSearchedContent(false);
     setContentResults([]);
+    setPluginsHasSearched(false);
+    setPluginsResults([]);
+    setSelectedPluginProjectIds([]);
     setSimpleFixResult(null);
     setWorkspaceSummary(null);
     setPublicHostingSettings(null);
     setSelectedPlayerProfile(null);
   }, [selectedServerId]);
+
+  useEffect(() => {
+    if (!connected || !selectedServerId || !uiV2ShellEnabled) {
+      return;
+    }
+    if (v2Route.context !== "server-workspace" || v2Route.tab !== "plugins") {
+      return;
+    }
+    if (pluginsHasSearched || pluginsSearching) {
+      return;
+    }
+    void searchPlugins();
+  }, [connected, selectedServerId, uiV2ShellEnabled, v2Route.context, v2Route.tab, pluginsHasSearched, pluginsSearching, pluginsQuery]);
 
   useEffect(() => {
     if (activeView !== "setup") {
@@ -3221,17 +3388,53 @@ export default function App() {
     });
   }
 
-  async function runBulkServerAction(action: BulkServerAction): Promise<void> {
-    if (bulkSelectedServerIds.length === 0) {
+  function openSingleDeleteModal(server: Server): void {
+    setDeleteConfirmToken("");
+    setDeleteModal({
+      mode: "single",
+      serverIds: [server.id],
+      title: `Delete ${server.name}?`,
+      detail: "This will permanently delete the server record, files, and backup archives."
+    });
+  }
+
+  function openBulkDeleteModal(serverIds: string[]): void {
+    if (serverIds.length === 0) {
       setNotice("Select at least one server for bulk actions.");
       return;
+    }
+    setDeleteConfirmToken("");
+    setDeleteModal({
+      mode: "bulk",
+      serverIds,
+      title: `Delete ${serverIds.length} server${serverIds.length === 1 ? "" : "s"}?`,
+      detail: "This is permanent and deletes each server record, files, and backup archives."
+    });
+  }
+
+  async function runBulkServerAction(
+    action: BulkServerAction,
+    options?: {
+      serverIds?: string[];
+      skipDeleteConfirm?: boolean;
+    }
+  ): Promise<boolean> {
+    const targetServerIds = options?.serverIds ?? bulkSelectedServerIds;
+    if (targetServerIds.length === 0) {
+      setNotice("Select at least one server for bulk actions.");
+      return false;
+    }
+
+    if (action === "delete" && !options?.skipDeleteConfirm) {
+      openBulkDeleteModal(targetServerIds);
+      return false;
     }
 
     try {
       setBulkActionInFlight(action);
       const response = await api.current.post<BulkServerActionResponse>("/servers/bulk-action", {
         action,
-        serverIds: bulkSelectedServerIds
+        serverIds: targetServerIds
       });
       await refreshAll();
 
@@ -3250,9 +3453,20 @@ export default function App() {
       } else {
         setNotice(`Bulk ${action}: ${response.succeeded}/${response.total} succeeded.`);
       }
+      if (action === "delete") {
+        const deletedIds = response.results.filter((entry) => entry.ok).map((entry) => entry.serverId);
+        if (deletedIds.length > 0) {
+          setBulkSelectedServerIds((previous) => previous.filter((id) => !deletedIds.includes(id)));
+          if (selectedServerId && deletedIds.includes(selectedServerId)) {
+            setSelectedServerId(null);
+          }
+        }
+      }
       setError(null);
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      return false;
     } finally {
       setBulkActionInFlight(null);
     }
@@ -3907,12 +4121,43 @@ export default function App() {
     window.localStorage.removeItem("simpleservers.onboarding.dismissed");
   }
 
-  async function deleteServer(server: Server): Promise<void> {
-    const confirmed = window.confirm(
-      `Delete "${server.name}"? This removes the server entry, files, and backup archives. This cannot be undone.`
-    );
-    if (!confirmed) {
+  async function openServerFolder(server: Server): Promise<void> {
+    const openPath = desktopBridge?.openPath;
+    if (!openPath) {
       return;
+    }
+
+    const targetPath = server.rootPath?.trim();
+    if (!targetPath) {
+      setError(`No server path is available for ${server.name}.`);
+      return;
+    }
+
+    try {
+      const result = await openPath(targetPath);
+      if (!result.ok) {
+        throw new Error(result.error ?? "Unable to open folder.");
+      }
+      setNotice(`Opened folder for ${server.name}.`);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function deleteServer(
+    server: Server,
+    options?: {
+      skipConfirm?: boolean;
+    }
+  ): Promise<boolean> {
+    if (!options?.skipConfirm) {
+      const confirmed = window.confirm(
+        `Delete "${server.name}"? This removes the server entry, files, and backup archives. This cannot be undone.`
+      );
+      if (!confirmed) {
+        return false;
+      }
     }
 
     try {
@@ -3931,12 +4176,46 @@ export default function App() {
       } else {
         setNotice(`Deleted ${server.name}.`);
       }
+      setBulkSelectedServerIds((previous) => previous.filter((id) => id !== server.id));
       setError(null);
+      return true;
     } catch (e) {
       setNotice(null);
       setError(e instanceof Error ? e.message : String(e));
+      return false;
     } finally {
       setDeletingServerId(null);
+    }
+  }
+
+  async function confirmDeleteModal(): Promise<void> {
+    if (!deleteModal) {
+      return;
+    }
+
+    if (deleteModal.mode === "single") {
+      const server = servers.find((entry) => entry.id === deleteModal.serverIds[0]);
+      if (!server) {
+        setDeleteModal(null);
+        setDeleteConfirmToken("");
+        setNotice("Server was already removed.");
+        return;
+      }
+      const success = await deleteServer(server, { skipConfirm: true });
+      if (success) {
+        setDeleteModal(null);
+        setDeleteConfirmToken("");
+      }
+      return;
+    }
+
+    const success = await runBulkServerAction("delete", {
+      serverIds: deleteModal.serverIds,
+      skipDeleteConfirm: true
+    });
+    if (success) {
+      setDeleteModal(null);
+      setDeleteConfirmToken("");
     }
   }
 
@@ -4733,6 +5012,10 @@ export default function App() {
   const v2CanStop = canStopServer(v2ServerStatus);
   const v2PlayerCapacity = workspaceSummary?.players.capacity ?? playerAdminState?.capacity ?? 20;
   const resolvedSignatureStatus = desktopBridge?.signatureStatus ?? trustReport?.build.signatureStatus ?? null;
+  const canManageContent = capabilities.contentInstall ?? (viewer?.role === "owner" || viewer?.role === "admin");
+  const canOpenServerFolder = Boolean(desktopBridge?.openPath);
+  const installedPlugins = installedPackages.filter((entry) => entry.kind === "plugin");
+  const pluginUpdates = packageUpdates.filter((entry) => installedPlugins.some((plugin) => plugin.id === entry.packageId));
   const v2PreflightHints = useMemo(() => {
     const hints: string[] = [];
     if (createServer.allowCracked) {
@@ -4844,6 +5127,52 @@ export default function App() {
           openPlayerProfile(player);
         }}
       />
+    ) : v2Route.tab === "plugins" ? (
+      <PluginsTab
+        serverType={selectedServer?.type ?? "paper"}
+        query={pluginsQuery}
+        searching={pluginsSearching}
+        hasSearched={pluginsHasSearched}
+        results={pluginsResults}
+        selectedProjectIds={selectedPluginProjectIds}
+        installingSelected={installingSelectedPlugins}
+        installingProjectId={installingPluginProjectId}
+        installedPlugins={installedPlugins.map((entry) => ({
+          id: entry.id,
+          provider: entry.provider,
+          projectId: entry.projectId,
+          versionId: entry.versionId,
+          name: entry.name,
+          gameVersion: entry.gameVersion
+        }))}
+        pluginUpdates={pluginUpdates}
+        runningPackageActionId={runningPluginPackageActionId}
+        canManagePlugins={canManageContent}
+        onQueryChange={setPluginsQuery}
+        onSearch={() => {
+          void searchPlugins();
+        }}
+        onApplyFeaturedQuery={(query) => {
+          setPluginsQuery(query);
+          void searchPlugins(query);
+        }}
+        onToggleSelect={toggleSelectedPlugin}
+        onInstallOne={(projectId) => {
+          void installOnePlugin(projectId);
+        }}
+        onInstallSelected={() => {
+          void installSelectedPlugins();
+        }}
+        onClearSelection={() => {
+          setSelectedPluginProjectIds([]);
+        }}
+        onUpdateInstalled={(packageId) => {
+          void updateInstalledPlugin(packageId);
+        }}
+        onRemoveInstalled={(packageId) => {
+          void removeInstalledPlugin(packageId);
+        }}
+      />
     ) : v2Route.tab === "backups" ? (
       <BackupsTab
         backups={backups}
@@ -4948,14 +5277,35 @@ export default function App() {
               selectedServerId={selectedServerId}
               search={serverSearch}
               busy={busy}
+              deletingServerId={deletingServerId}
+              bulkSelectedServerIds={bulkSelectedServerIds}
+              allFilteredServersSelected={allFilteredServersSelected}
+              bulkActionInFlight={bulkActionInFlight}
+              canOpenFolder={canOpenServerFolder}
               onSearchChange={setServerSearch}
               onSelectServer={setSelectedServerId}
               onOpenSetup={openV2SetupWizard}
               onOpenWorkspace={(serverId) => openV2Workspace(serverId)}
               onDeleteServer={(server) => {
-                void deleteServer(server as Server);
+                openSingleDeleteModal(server as Server);
               }}
-              deletingServerId={deletingServerId}
+              onStartServer={(serverId) => {
+                void serverAction(serverId, "start");
+              }}
+              onStopServer={(serverId) => {
+                void serverAction(serverId, "stop");
+              }}
+              onRestartServer={(serverId) => {
+                void serverAction(serverId, "restart");
+              }}
+              onOpenFolder={(server) => {
+                void openServerFolder(server as Server);
+              }}
+              onToggleBulkSelection={toggleBulkServerSelection}
+              onToggleBulkSelectAll={toggleSelectAllFilteredServers}
+              onRunBulkAction={(action) => {
+                void runBulkServerAction(action);
+              }}
               statusTone={statusTone}
               normalizeStatus={normalizeStatus}
             />
@@ -4970,6 +5320,7 @@ export default function App() {
               playerCapacityLabel={`${workspaceOnlineCount}/${v2PlayerCapacity} players`}
               canStart={v2CanStart}
               canStop={v2CanStop}
+              onOpenServers={openV2ServersList}
               onStart={() => {
                 if (selectedServerId) {
                   void serverAction(selectedServerId, "start");
@@ -5061,6 +5412,31 @@ export default function App() {
             setV2WizardProgress([]);
             setV2WizardError(null);
             openV2Workspace(selectedServerId, "dashboard");
+          }}
+        />
+
+        <DeleteConfirmModal
+          visible={deleteModal !== null}
+          title={deleteModal?.title ?? "Delete Servers"}
+          detail={deleteModal?.detail ?? ""}
+          confirmToken={deleteConfirmToken}
+          expectedToken="DELETE"
+          busy={deleteModal?.mode === "single" ? deletingServerId !== null : bulkActionInFlight === "delete"}
+          itemNames={
+            deleteModal?.serverIds
+              .map((serverId) => servers.find((entry) => entry.id === serverId)?.name ?? serverId)
+              .filter((entry, index, list) => list.indexOf(entry) === index) ?? []
+          }
+          onConfirmTokenChange={setDeleteConfirmToken}
+          onClose={() => {
+            if (deletingServerId !== null || bulkActionInFlight === "delete") {
+              return;
+            }
+            setDeleteModal(null);
+            setDeleteConfirmToken("");
+          }}
+          onConfirm={() => {
+            void confirmDeleteModal();
           }}
         />
 

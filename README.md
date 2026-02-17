@@ -2,17 +2,19 @@
 
 SimpleServers is an open-source, local-first Minecraft server hosting and administration platform.
 
-Latest stable desktop release: `v0.5.7`
+Latest stable desktop release: `v0.5.8`
 
 - Releases: `https://github.com/dueldev/SimpleServers/releases`
-- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.5.7`
+- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.5.8`
 
 ## Production Highlights
 
 - Desktop-first v2 IA with three explicit contexts:
   - `Servers` list/search/create
   - `Setup Wizard` (5-step guided flow)
-  - `Server Workspace` tabbed operations (`Dashboard`, `Console`, `Players`, `Backups`, `Scheduler`, `Settings`)
+  - `Server Workspace` tabbed operations (`Dashboard`, `Console`, `Players`, `Plugins`, `Backups`, `Scheduler`, `Settings`)
+- v2 Servers operations hub with row + bulk actions (`Start`, `Stop`, `Restart`, `Backup`, `Go Live`, `Delete`) and typed hard-delete confirmation.
+- Desktop-only `Open Folder` actions in v2 via Electron IPC bridge.
 - Backward-compatible legacy workspace fallback behind v2 shell flag.
 - Setup session contract for deterministic wizard launches:
   - `POST /setup/sessions`
@@ -26,6 +28,7 @@ Latest stable desktop release: `v0.5.7`
 - Optional providers remain available (`manual`, `cloudflared`, `ngrok`) via v2 networking settings.
 - Backups with pre-restore safety snapshot, retention policy, cloud destinations, and verified cloud restore.
 - Content manager with Modrinth/CurseForge install/update plus modpack plan/import/rollback.
+- Workspace `Plugins` tab with Modrinth-first search and one-click multi-select batch install.
 - Player admin flows (ops/whitelist/player+IP bans/history) plus clickable cached player profiles with modal actions.
 - Reliability and trust surfaces (performance advisor, reliability dashboard, trust report, checksum verification, audit export).
 - Local-first security model with RBAC tokens, audit trail, and optional hardened remote-control mode.
@@ -92,6 +95,11 @@ npm run test:ui:live
 
 ## Recent Release Notes
 
+- `v0.5.8`
+  - Added a stronger v2 Servers operations hub with summary cards, row actions, sticky bulk actions, and typed hard-delete confirmations.
+  - Added a dedicated v2 `Plugins` workspace tab with Modrinth-first discovery, plugin compatibility flags, multi-select install, and installed-plugin update/remove controls.
+  - Added desktop-only `Open Folder` actions for servers through a secure Electron `openPath` bridge.
+  - Added additive API support for batch plugin installs (`POST /servers/:id/packages/install-batch`) and bulk delete in `POST /servers/bulk-action`.
 - `v0.5.7`
   - Verified Playit-first quick hosting flow and player-admin action paths through API integration + web e2e + live UI smoke gates.
   - Improved v2 workspace console UX with a larger command composer, Enter-to-send behavior, quick command chips, and clearer send/clear actions.

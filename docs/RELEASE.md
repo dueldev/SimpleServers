@@ -3,7 +3,7 @@
 SimpleServers ships desktop artifacts via Electron Builder and GitHub Actions.
 
 Canonical repository: `https://github.com/dueldev/SimpleServers`
-Current stable tag: `v0.5.7`
+Current stable tag: `v0.5.8`
 
 ## Workflows
 
@@ -100,6 +100,12 @@ Default log paths:
 
 ## Recent Release Notes
 
+- `v0.5.8`
+  - Added v2 Servers operations hub with snapshot cards, row-level controls, bulk action bar, and typed-confirmation hard delete for single/bulk delete.
+  - Added v2 `Plugins` workspace tab with Modrinth-first discovery, multi-select install, installed-plugin management, and compatibility cues.
+  - Added additive API support for plugin batch install (`POST /servers/:id/packages/install-batch`) and bulk delete (`POST /servers/bulk-action` action `delete`).
+  - Added desktop-only server folder open integration via Electron IPC bridge (`window.simpleServers.openPath`).
+  - Updated UI live smoke selectors to match v2 navigation labels and preserved green desktop/mobile smoke coverage.
 - `v0.5.7`
   - Performed full release-gate verification for Playit-first hosting and player-admin modal flows (`typecheck`, API integration, web e2e, build, UI live smoke).
   - Improved v2 console command UX with a larger composer, Enter-to-send interaction, quick command chips, and clearer send/clear controls.

@@ -50,7 +50,7 @@ const ignoredDirectoryNames = new Set(["node_modules", "libraries", ".git", "cac
 const maxEditableFileBytes = 1024 * 1024; // 1 MB safety guard for in-app editing.
 const maxEditorFiles = 350;
 const maxEditorDepth = 5;
-const APP_VERSION = "0.5.7";
+const APP_VERSION = "0.5.8";
 const PLAYIT_CONSENT_VERSION = "playit-terms-v1";
 const REPOSITORY_URL = "https://github.com/dueldev/SimpleServers";
 const SETUP_SESSION_TTL_MS = 15 * 60 * 1000;
@@ -153,6 +153,20 @@ const installPackageSchema = z.object({
   kind: z.enum(["mod", "plugin", "modpack", "resourcepack"]).optional()
 });
 
+const installPackageBatchSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        provider: z.enum(["modrinth", "curseforge"]).optional(),
+        projectId: z.string().min(1),
+        requestedVersionId: z.string().optional(),
+        kind: z.enum(["plugin"]).default("plugin")
+      })
+    )
+    .min(1)
+    .max(50)
+});
+
 const rotateTokenSchema = z.object({
   newToken: z.string().min(12)
 });
@@ -211,7 +225,7 @@ const telemetryFunnelQuerySchema = z.object({
 
 const bulkServerActionSchema = z.object({
   serverIds: z.array(z.string().min(4)).min(1).max(100),
-  action: z.enum(["start", "stop", "restart", "backup", "goLive"])
+  action: z.enum(["start", "stop", "restart", "backup", "goLive", "delete"])
 });
 
 const performanceAdvisorQuerySchema = z.object({
@@ -1487,6 +1501,59 @@ export async function registerApiRoutes(
     };
   };
 
+  const deleteServerResources = async (
+    server: NonNullable<ReturnType<typeof store.getServerById>>,
+    options: {
+      deleteFiles: boolean;
+      deleteBackups: boolean;
+    }
+  ): Promise<{ warnings: string[] }> => {
+    try {
+      await deps.tunnels.stopTunnelsForServer(server.id);
+      await deps.runtime.stop(server.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Could not stop server resources before delete: ${message}`);
+    }
+
+    const warnings: string[] = [];
+
+    if (options.deleteBackups) {
+      const backups = store.listBackups(server.id);
+      for (const backup of backups) {
+        if (!isPathInsideRoot(config.backupsDir, backup.filePath)) {
+          warnings.push(`Skipped backup cleanup outside backups directory: ${backup.filePath}`);
+          continue;
+        }
+        try {
+          removeFileIfPresent(backup.filePath);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          warnings.push(`Failed to delete backup ${backup.filePath}: ${message}`);
+        }
+      }
+    }
+
+    store.deleteServer(server.id);
+    deps.tasks.refresh();
+    deps.backupRetention.refresh();
+
+    if (options.deleteFiles) {
+      if (!isPathInsideRoot(config.serversDir, server.rootPath)) {
+        warnings.push(`Skipped server directory cleanup outside servers directory: ${server.rootPath}`);
+      } else {
+        try {
+          removeFileIfPresent(server.rootPath);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          warnings.push(`Failed to delete server directory ${server.rootPath}: ${message}`);
+        }
+      }
+    }
+
+    return { warnings };
+  };
+
   const toFixedNumber = (value: number, digits = 1): number => Number(value.toFixed(digits));
 
   const buildPerformanceAdvisor = (
@@ -2032,6 +2099,30 @@ export async function registerApiRoutes(
             : outcome.warning ?? "Go Live failed",
           publicAddress: outcome.publicHosting.publicAddress
         });
+        continue;
+      }
+
+      if (payload.action === "delete") {
+        try {
+          const deletion = await deleteServerResources(server, {
+            deleteFiles: true,
+            deleteBackups: true
+          });
+          const warningDetail =
+            deletion.warnings.length > 0 ? ` (warnings: ${deletion.warnings.slice(0, 2).join(" | ")}${deletion.warnings.length > 2 ? " ..." : ""})` : "";
+          results.push({
+            serverId: server.id,
+            ok: true,
+            message: `Deleted${warningDetail}`
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          results.push({
+            serverId: server.id,
+            ok: false,
+            message: `Delete failed: ${message}`
+          });
+        }
       }
     }
 
@@ -2060,63 +2151,30 @@ export async function registerApiRoutes(
     }
 
     try {
-      await deps.tunnels.stopTunnelsForServer(id);
-      await deps.runtime.stop(id);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw app.httpErrors.conflict(`Could not stop server resources before delete: ${message}`);
-    }
-
-    const warnings: string[] = [];
-
-    if (query.deleteBackups) {
-      const backups = store.listBackups(id);
-      for (const backup of backups) {
-        if (!isPathInsideRoot(config.backupsDir, backup.filePath)) {
-          warnings.push(`Skipped backup cleanup outside backups directory: ${backup.filePath}`);
-          continue;
-        }
-        try {
-          removeFileIfPresent(backup.filePath);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          warnings.push(`Failed to delete backup ${backup.filePath}: ${message}`);
-        }
-      }
-    }
-
-    store.deleteServer(id);
-    deps.tasks.refresh();
-    deps.backupRetention.refresh();
-
-    if (query.deleteFiles) {
-      if (!isPathInsideRoot(config.serversDir, server.rootPath)) {
-        warnings.push(`Skipped server directory cleanup outside servers directory: ${server.rootPath}`);
-      } else {
-        try {
-          removeFileIfPresent(server.rootPath);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          warnings.push(`Failed to delete server directory ${server.rootPath}: ${message}`);
-        }
-      }
-    }
-
-    writeAudit(request.user!.username, "server.delete", "server", id, {
-      deleteFiles: query.deleteFiles,
-      deleteBackups: query.deleteBackups,
-      warnings
-    });
-
-    return {
-      ok: true,
-      deleted: {
-        serverId: id,
+      const deletion = await deleteServerResources(server, {
         deleteFiles: query.deleteFiles,
         deleteBackups: query.deleteBackups
-      },
-      warnings
-    };
+      });
+
+      writeAudit(request.user!.username, "server.delete", "server", id, {
+        deleteFiles: query.deleteFiles,
+        deleteBackups: query.deleteBackups,
+        warnings: deletion.warnings
+      });
+
+      return {
+        ok: true,
+        deleted: {
+          serverId: id,
+          deleteFiles: query.deleteFiles,
+          deleteBackups: query.deleteBackups
+        },
+        warnings: deletion.warnings
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw app.httpErrors.conflict(message);
+    }
   });
 
   app.post("/servers/:id/start", { preHandler: [authenticate, requireRole("moderator")] }, async (request, reply) => {
@@ -3828,6 +3886,38 @@ export async function registerApiRoutes(
       versionId: result.versionId
     });
     return { install: result };
+  });
+
+  app.post("/servers/:id/packages/install-batch", { preHandler: [authenticate, requireRole("admin")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const payload = installPackageBatchSchema.parse(request.body ?? {});
+    const server = store.getServerById(id);
+    if (!server) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+
+    const result = await deps.content.installPackageBatch({
+      serverId: id,
+      items: payload.items.map((item) => ({
+        provider: item.provider ?? "modrinth",
+        projectId: item.projectId,
+        requestedVersionId: item.requestedVersionId,
+        kind: "plugin"
+      }))
+    });
+
+    writeAudit(request.user!.username, "package.install_batch", "server", id, {
+      summary: result.summary,
+      results: result.results.map((entry) => ({
+        projectId: entry.projectId,
+        provider: entry.provider,
+        ok: entry.ok,
+        versionId: entry.install?.versionId ?? null,
+        error: entry.error ?? null
+      }))
+    });
+
+    return result;
   });
 
   app.post(

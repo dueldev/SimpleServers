@@ -17,13 +17,15 @@ SimpleServers is a local-first control plane split into API, web UI, and desktop
   - `Servers`
   - `Setup Wizard`
   - `Server Workspace`
-- Workspace tabs: `Dashboard`, `Console`, `Players`, `Backups`, `Scheduler`, `Settings`.
+- Workspace tabs: `Dashboard`, `Console`, `Players`, `Plugins`, `Backups`, `Scheduler`, `Settings`.
+- v2 `Servers` context is the operations hub for row-level and bulk lifecycle actions, including typed-confirmation hard delete.
 - Legacy workspace remains available behind a feature flag fallback.
 
 3. Desktop shell (`apps/desktop`)
 
 - Electron wrapper that embeds API and web assets in one local app.
 - Starts API in app-local user data path.
+- Exposes desktop-only IPC helpers (for example `openPath`) used by v2 to open local server folders safely.
 - Uses `electron-updater` for release-channel update checks in packaged builds.
 
 ## Data Model
@@ -116,6 +118,7 @@ SimpleServers is a local-first control plane split into API, web UI, and desktop
 - Search/list versions against Modrinth or CurseForge.
 - Compatibility resolution by server type, version, and loader hints.
 - Install/update/uninstall mapped to managed paths and tracked in DB.
+- Batch plugin install endpoint executes sequentially and returns per-item success/failure for deterministic UI feedback.
 
 10. Remote access hardening
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
@@ -21,6 +21,45 @@ let apiProcess: ChildProcessWithoutNullStreams | null = null;
 let updateInterval: NodeJS.Timeout | null = null;
 let latestApiFailure: string | null = null;
 let desktopLogPath: string | null = null;
+
+function registerDesktopIpc(): void {
+  ipcMain.removeHandler("simpleservers:open-path");
+  ipcMain.handle("simpleservers:open-path", async (_event, rawTargetPath: unknown) => {
+    if (typeof rawTargetPath !== "string" || rawTargetPath.trim().length === 0) {
+      return {
+        ok: false,
+        error: "Path is required."
+      };
+    }
+
+    const targetPath = rawTargetPath.trim();
+    if (!path.isAbsolute(targetPath)) {
+      return {
+        ok: false,
+        error: "Path must be absolute."
+      };
+    }
+
+    if (!fs.existsSync(targetPath)) {
+      return {
+        ok: false,
+        error: "Path does not exist."
+      };
+    }
+
+    const openError = await shell.openPath(targetPath);
+    if (openError) {
+      return {
+        ok: false,
+        error: openError
+      };
+    }
+
+    return {
+      ok: true
+    };
+  });
+}
 
 function isDevMode(): boolean {
   return process.env.SIMPLESERVERS_DESKTOP_DEV === "1" || !app.isPackaged;
@@ -423,6 +462,7 @@ async function boot(): Promise<void> {
   });
 
   await app.whenReady();
+  registerDesktopIpc();
   desktopLogPath = path.join(app.getPath("userData"), "desktop.log");
   writeDesktopLog("app ready");
 

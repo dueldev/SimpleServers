@@ -44,12 +44,72 @@
   gap: var(--space-6);
 }
 
+.v2-server-summary-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.v2-server-summary-grid .panel {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.v2-server-summary-grid .panel h3 {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.85rem;
+}
+
+.v2-server-summary-grid .panel strong {
+  font-size: 1.8rem;
+  line-height: 1.15;
+}
+
 .v2-servers-toolbar {
   display: flex;
   justify-content: space-between;
   gap: var(--space-5);
   align-items: flex-end;
   flex-wrap: wrap;
+}
+
+.v2-servers-table-wrap table th:first-child,
+.v2-servers-table-wrap table td:first-child {
+  width: 44px;
+  text-align: center;
+}
+
+.table-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.v2-server-row-actions {
+  gap: var(--space-2);
+}
+
+.v2-server-row-actions button {
+  min-height: 36px;
+  padding: 6px 10px;
+}
+
+.v2-server-bulk-bar {
+  position: sticky;
+  top: 8px;
+  z-index: 8;
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  border-color: color-mix(in srgb, var(--primary) 44%, var(--border));
+  box-shadow: var(--v2-elev-2);
+}
+
+.v2-server-bulk-bar p {
+  margin: 4px 0 0;
 }
 
 .v2-empty-state {
@@ -311,11 +371,122 @@
 .v2-dashboard-tab,
 .v2-console-tab,
 .v2-players-tab,
+.v2-plugins-tab,
 .v2-backups-tab,
 .v2-scheduler-tab,
 .v2-settings-tab {
   display: grid;
   gap: var(--space-5);
+}
+
+.v2-plugin-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  align-items: end;
+}
+
+.v2-plugin-search-field {
+  min-width: 0;
+}
+
+.v2-plugin-search-field input {
+  width: 100%;
+}
+
+.v2-plugin-filters {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.v2-plugin-selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+}
+
+.v2-plugin-selection-bar p {
+  margin: 4px 0 0;
+}
+
+.v2-plugin-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.v2-plugin-card {
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: var(--v2-radius-md);
+  background: color-mix(in srgb, var(--surface-strong) 78%, transparent);
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.v2-plugin-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.v2-plugin-card-body {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.v2-plugin-card-body h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.v2-plugin-card-body p {
+  margin: 6px 0 0;
+  font-size: 0.9rem;
+}
+
+.v2-plugin-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
+.v2-plugin-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  display: grid;
+  place-items: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.v2-plugin-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.v2-plugin-empty {
+  border: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: var(--v2-radius-md);
+  padding: var(--space-5);
+  display: grid;
+  gap: var(--space-2);
+  color: var(--text-soft);
 }
 
 .v2-console-tab .log-box {
@@ -508,6 +679,14 @@
   .v2-server-type-grid {
     grid-template-columns: 1fr;
   }
+
+  .v2-server-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .v2-plugin-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -537,6 +716,25 @@
   }
 
   .v2-console-command-actions button {
+    flex: 1 1 0;
+  }
+
+  .v2-server-summary-grid,
+  .v2-plugin-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .v2-plugin-search-row {
+    grid-template-columns: 1fr;
+  }
+
+  .v2-server-bulk-bar .inline-actions,
+  .v2-plugin-selection-bar .inline-actions {
+    width: 100%;
+  }
+
+  .v2-server-bulk-bar .inline-actions button,
+  .v2-plugin-selection-bar .inline-actions button {
     flex: 1 1 0;
   }
 }
