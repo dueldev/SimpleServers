@@ -2,7 +2,23 @@
 
 ## Status
 
-Current stable milestone: `v0.5.1` (validated by local typecheck/tests/build/desktop build).
+Current stable milestone: `v0.5.2` (validated by local typecheck/tests/build/API+e2e+live UI smoke).
+
+## Implemented in v0.5.2
+
+- Shipped beginner-mode default navigation with four app-first tabs: `Home`, `Create`, `Share`, `Fix`.
+- Added isolated `Advanced Controls` workspace entry for technical/power-user tooling.
+- Added API capability and beginner aggregation endpoints:
+  - `GET /system/capabilities`
+  - `GET /servers/:id/simple-status`
+  - `POST /servers/:id/simple-fix`
+- Extended quickstart contract for beginner wizard inputs:
+  - `memoryPreset` (`small | recommended | large`)
+  - `savePath`
+  - `worldImportPath`
+- Added structured API error envelope (`code`, `message`, optional `details`) while preserving compatibility `error` text.
+- Hardened dashboard reliability with `Promise.allSettled` refresh strategy and role-gated privileged fetches so viewer flows do not fail on forbidden admin/audit endpoints.
+- Added/updated integration, e2e, and live smoke coverage for the new beginner flows and API contracts.
 
 ## Implemented in v0.5.1
 

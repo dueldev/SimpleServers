@@ -67,14 +67,18 @@ async function runDesktopSmoke(browser) {
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "Connect" }).click();
   await page.getByText("CONNECTED").first().waitFor({ timeout: 20_000 });
+  const nav = page.getByLabel("Workspace views");
 
-  await page.getByRole("button", { name: /^Setup$/ }).click();
-  await page.getByRole("heading", { name: "Guided Server Setup" }).waitFor({ timeout: 15_000 });
+  await nav.getByRole("button", { name: "Create" }).click();
+  await page.getByRole("heading", { name: "Create" }).waitFor({ timeout: 15_000 });
 
-  await page.getByRole("button", { name: /^Manage$/ }).click();
-  await page.getByRole("heading", { name: /^Crash Doctor$/ }).waitFor({ timeout: 15_000 });
+  await nav.getByRole("button", { name: "Fix" }).click();
+  await page.getByRole("heading", { name: /^Fix$/ }).waitFor({ timeout: 15_000 });
 
-  await page.getByRole("button", { name: /^Content$/ }).click();
+  await page.getByRole("button", { name: "Advanced Controls" }).click();
+  await page.getByRole("heading", { name: "Advanced Workspace" }).waitFor({ timeout: 15_000 });
+
+  await nav.getByRole("button", { name: "Content" }).click();
   await page.getByRole("heading", { name: "Content Manager" }).waitFor({ timeout: 15_000 });
   await page.close();
 }
@@ -84,12 +88,13 @@ async function runMobileSmoke(browser) {
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "Connect" }).click();
   await page.getByText("CONNECTED").first().waitFor({ timeout: 20_000 });
+  const nav = page.getByLabel("Workspace views");
 
-  await page.getByRole("button", { name: /^Setup$/ }).click();
-  await page.getByRole("heading", { name: "Guided Server Setup" }).waitFor({ timeout: 15_000 });
+  await nav.getByRole("button", { name: "Create" }).click();
+  await page.getByRole("heading", { name: "Create" }).waitFor({ timeout: 15_000 });
 
-  await page.getByRole("button", { name: /^Overview$/ }).click();
-  await page.getByRole("heading", { name: "Command Center" }).waitFor({ timeout: 15_000 });
+  await nav.getByRole("button", { name: "Home" }).click();
+  await page.getByRole("heading", { name: "Home" }).waitFor({ timeout: 15_000 });
   await page.close();
 }
 

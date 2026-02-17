@@ -44,6 +44,29 @@ test("connects and renders dashboard sections", async ({ page }) => {
       return;
     }
 
+    if (pathname === "/system/capabilities" && method === "GET") {
+      await withJson(200, {
+        user: {
+          id: "usr_owner",
+          username: "owner",
+          role: "owner"
+        },
+        capabilities: {
+          serverLifecycle: true,
+          serverCreate: true,
+          advancedWorkspace: true,
+          contentInstall: true,
+          tunnelManage: true,
+          userManage: true,
+          remoteConfig: true,
+          auditRead: true,
+          trustRead: true,
+          telemetryRead: true
+        }
+      });
+      return;
+    }
+
     if (pathname === "/servers" && method === "GET") {
       await withJson(200, {
         servers: [
@@ -278,6 +301,49 @@ test("connects and renders dashboard sections", async ({ page }) => {
       return;
     }
 
+    if (pathname === "/servers/srv_1/simple-status" && method === "GET") {
+      await withJson(200, {
+        server: {
+          id: "srv_1",
+          name: "Test Server",
+          status: "running",
+          localAddress: "127.0.0.1:25565",
+          inviteAddress: null
+        },
+        quickHosting: {
+          enabled: true,
+          status: "pending",
+          endpointPending: true,
+          diagnostics: {
+            message: "waiting for endpoint",
+            endpointAssigned: false,
+            retry: {
+              nextAttemptAt: new Date(Date.now() + 5000).toISOString(),
+              nextAttemptInSeconds: 5,
+              lastAttemptAt: new Date().toISOString(),
+              lastSuccessAt: null
+            }
+          }
+        },
+        checklist: {
+          created: true,
+          running: true,
+          publicReady: false
+        },
+        primaryAction: {
+          id: "go_live",
+          label: "Go Live",
+          available: true
+        },
+        preflight: {
+          passed: true,
+          blocked: false,
+          issues: []
+        }
+      });
+      return;
+    }
+
     if (pathname === "/servers/srv_1/public-hosting/diagnostics" && method === "GET") {
       await withJson(200, {
         diagnostics: {
@@ -340,6 +406,19 @@ test("connects and renders dashboard sections", async ({ page }) => {
 
     if (pathname === "/servers/srv_1/safe-restart" && method === "POST") {
       await withJson(200, { ok: true, blocked: false });
+      return;
+    }
+
+    if (pathname === "/servers/srv_1/simple-fix" && method === "POST") {
+      await withJson(200, {
+        ok: true,
+        status: "fixed",
+        code: "fixed",
+        message: "Server restarted and recovery actions completed.",
+        summary: "Automatic fix completed successfully.",
+        completed: ["restarted server safely"],
+        warnings: []
+      });
       return;
     }
 
@@ -449,7 +528,7 @@ test("connects and renders dashboard sections", async ({ page }) => {
       await withJson(200, {
         generatedAt: new Date().toISOString(),
         build: {
-          appVersion: "0.5.1",
+          appVersion: "0.5.2",
           platform: "darwin",
           arch: "arm64",
           nodeVersion: "v20.0.0",
@@ -575,11 +654,34 @@ test("connects and renders dashboard sections", async ({ page }) => {
 
   await page.goto("/");
   await page.getByRole("button", { name: "Connect" }).click();
+  const nav = page.getByLabel("Workspace views");
 
-  await expect(page.getByRole("heading", { name: "Server Fleet" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
+  await nav.getByRole("button", { name: "Share" }).click();
+  await expect(page.getByRole("heading", { name: "Share" })).toBeVisible();
   await page.getByRole("button", { name: "Set Playit Secret" }).first().click();
   await expect(page.getByLabel("Playit Secret").first()).toBeVisible();
+
+  await nav.getByRole("button", { name: "Create" }).click();
+  await expect(page.getByRole("heading", { name: "Create" })).toBeVisible();
+  await page.getByRole("button", { name: "Fabric" }).click();
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("button", { name: "Create and Launch" }).click();
+  await expect.poll(() => quickStartCalled).toBe(true);
+  await expect(page.getByRole("heading", { name: "Share" })).toBeVisible();
+
+  const advancedControlsButton = page.getByRole("button", { name: "Advanced Controls" });
+  if (await advancedControlsButton.isVisible()) {
+    await advancedControlsButton.click();
+  }
+  await nav.getByRole("button", { name: "Advanced" }).click();
+  await expect(page.getByRole("heading", { name: "Advanced Workspace" })).toBeVisible();
+  await nav.getByRole("button", { name: "Home" }).click();
+  await expect(page.getByRole("heading", { name: "Fleet Controls Hidden in Focus Mode" })).toBeVisible();
   await page.getByLabel("Layout density").selectOption("full");
+  await expect(page.getByRole("heading", { name: "Server Fleet" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Onboarding Funnel" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Test Server" })).toBeVisible();
   await page.getByRole("checkbox", { name: "Select Test Server" }).check();
@@ -589,7 +691,7 @@ test("connects and renders dashboard sections", async ({ page }) => {
   await expect.poll(() => stopCalled).toBe(true);
   await expect.poll(() => stopUsedEmptyJsonHeader).toBe(false);
 
-  await page.getByRole("button", { name: /^Setup$/ }).click();
+  await nav.getByRole("button", { name: "Create" }).click();
   await expect(page.getByRole("heading", { name: "Guided Server Setup" })).toBeVisible();
   await page.getByRole("button", { name: /Modded Fabric/i }).first().click();
   await expect(page.getByLabel("Type")).toHaveValue("fabric");
@@ -597,7 +699,7 @@ test("connects and renders dashboard sections", async ({ page }) => {
   await page.getByRole("button", { name: "Instant Launch (Recommended)" }).click();
   await expect.poll(() => quickStartCalled).toBe(true);
 
-  await page.getByRole("button", { name: "Content" }).click();
+  await nav.getByRole("button", { name: "Content" }).click();
   await page.getByRole("button", { name: "Search" }).click();
   await expect(page.getByText("Sodium")).toBeVisible();
 
@@ -606,9 +708,9 @@ test("connects and renders dashboard sections", async ({ page }) => {
   await page.getByRole("button", { name: /Open Trust Workspace/i }).click();
   await expect(page.getByRole("heading", { name: "Security Transparency" })).toBeVisible();
 
-  await page.getByRole("button", { name: /^Trust$/ }).click();
+  await nav.getByRole("button", { name: "Trust" }).click();
   await expect(page.getByRole("heading", { name: "Security Transparency" })).toBeVisible();
-  await page.getByRole("button", { name: "Content" }).click();
+  await nav.getByRole("button", { name: "Content" }).click();
 
   await page.getByRole("button", { name: "Install" }).click();
   await expect.poll(() => installCalled).toBe(true);

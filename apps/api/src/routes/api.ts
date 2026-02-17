@@ -46,7 +46,7 @@ const ignoredDirectoryNames = new Set(["node_modules", "libraries", ".git", "cac
 const maxEditableFileBytes = 1024 * 1024; // 1 MB safety guard for in-app editing.
 const maxEditorFiles = 350;
 const maxEditorDepth = 5;
-const APP_VERSION = "0.5.1";
+const APP_VERSION = "0.5.2";
 const REPOSITORY_URL = "https://github.com/dueldev/SimpleServers";
 
 const userCreateSchema = z.object({
@@ -67,7 +67,8 @@ const createServerSchema = z.object({
   allowCracked: z.boolean().default(false),
   enableGeyser: z.boolean().default(false),
   enableFloodgate: z.boolean().default(false),
-  preset: z.enum(["custom", "survival", "modded", "minigame"]).default("custom")
+  preset: z.enum(["custom", "survival", "modded", "minigame"]).default("custom"),
+  rootPath: z.string().trim().min(1).max(1024).optional()
 });
 
 const quickStartSchema = z.object({
@@ -79,7 +80,10 @@ const quickStartSchema = z.object({
   bedrockPort: z.number().int().min(1024).max(65535).optional(),
   startServer: z.boolean().default(true),
   publicHosting: z.boolean().default(true),
-  allowCracked: z.boolean().default(false)
+  allowCracked: z.boolean().default(false),
+  memoryPreset: z.enum(["small", "recommended", "large"]).default("recommended"),
+  savePath: z.string().trim().min(1).max(1024).optional(),
+  worldImportPath: z.string().trim().min(1).max(1024).optional()
 });
 
 const commandSchema = z.object({
@@ -242,20 +246,41 @@ function sanitizeServerDirName(name: string): string {
     .replace(/[^a-z0-9-_]/g, "");
 }
 
-function resolveUniqueServerRootPath(name: string): string {
+function resolveUniqueServerRootPathInDir(name: string, parentDir: string): string {
   const base = sanitizeServerDirName(name);
   if (!base) {
     throw new Error("Server name must contain at least one letter or number");
   }
 
-  const existing = new Set(store.listServers().map((server) => path.basename(server.rootPath)));
+  const existing = new Set(
+    store
+      .listServers()
+      .map((server) => server.rootPath)
+      .filter((rootPath) => path.dirname(rootPath) === parentDir)
+      .map((serverPath) => path.basename(serverPath))
+  );
   let candidate = base;
   let sequence = 1;
-  while (existing.has(candidate) || fs.existsSync(path.join(config.serversDir, candidate))) {
+  while (existing.has(candidate) || fs.existsSync(path.join(parentDir, candidate))) {
     candidate = `${base}-${String(sequence).padStart(2, "0")}`;
     sequence += 1;
   }
-  return path.join(config.serversDir, candidate);
+  return path.join(parentDir, candidate);
+}
+
+function resolveUniqueServerRootPath(name: string): string {
+  return resolveUniqueServerRootPathInDir(name, config.serversDir);
+}
+
+function resolveRequestedServerRootPath(name: string, requestedSavePath: string): string {
+  const requested = requestedSavePath.trim();
+  if (!requested) {
+    return resolveUniqueServerRootPath(name);
+  }
+
+  const resolvedParent = path.resolve(requested);
+  fs.mkdirSync(resolvedParent, { recursive: true });
+  return resolveUniqueServerRootPathInDir(name, resolvedParent);
 }
 
 function pickLatestVersionForType(
@@ -273,15 +298,22 @@ function pickLatestVersionForType(
 
 function resolveQuickStartMemoryProfile(
   preset: "custom" | "survival" | "modded" | "minigame",
-  totalMemoryMb: number
+  totalMemoryMb: number,
+  memoryPreset: "small" | "recommended" | "large" = "recommended"
 ): { minMemoryMb: number; maxMemoryMb: number } {
   const baseline =
     preset === "modded" ? { minMemoryMb: 4096, maxMemoryMb: 8192 } : preset === "minigame" ? { minMemoryMb: 3072, maxMemoryMb: 6144 } : { minMemoryMb: 2048, maxMemoryMb: 4096 };
 
+  const presetScale = memoryPreset === "small" ? 0.75 : memoryPreset === "large" ? 1.25 : 1;
+  const scaledBaseline = {
+    minMemoryMb: Math.max(1024, Math.round(baseline.minMemoryMb * presetScale)),
+    maxMemoryMb: Math.max(1536, Math.round(baseline.maxMemoryMb * presetScale))
+  };
+
   // Keep allocations conservative to avoid host thrashing on smaller systems.
   const cap = Math.max(2048, Math.floor(totalMemoryMb * 0.5));
-  const boundedMax = Math.min(baseline.maxMemoryMb, cap);
-  const boundedMin = Math.min(baseline.minMemoryMb, Math.max(1024, Math.floor(boundedMax * 0.6)));
+  const boundedMax = Math.min(scaledBaseline.maxMemoryMb, cap);
+  const boundedMin = Math.min(scaledBaseline.minMemoryMb, Math.max(1024, Math.floor(boundedMax * 0.6)));
 
   return {
     minMemoryMb: boundedMin,
@@ -548,6 +580,18 @@ export async function registerApiRoutes(
 
   app.get("/me", { preHandler: [authenticate] }, async (request) => ({ user: request.user }));
 
+  app.get("/system/capabilities", { preHandler: [authenticate] }, async (request) => {
+    const role = request.user!.role;
+    return {
+      user: {
+        id: request.user!.id,
+        username: request.user!.username,
+        role
+      },
+      capabilities: buildCapabilities(role)
+    };
+  });
+
   app.get("/users", { preHandler: [authenticate, requireRole("owner")] }, async () => {
     return { users: store.listUsers() };
   });
@@ -650,7 +694,41 @@ export async function registerApiRoutes(
     };
   });
 
-  const createAndProvisionServer = async (payload: z.infer<typeof createServerSchema>) => {
+  const roleRank: Record<UserRole, number> = {
+    viewer: 10,
+    moderator: 20,
+    admin: 30,
+    owner: 40
+  };
+
+  const capabilityRoleThresholds: Record<string, UserRole> = {
+    serverLifecycle: "moderator",
+    serverCreate: "admin",
+    advancedWorkspace: "admin",
+    contentInstall: "admin",
+    tunnelManage: "admin",
+    userManage: "owner",
+    remoteConfig: "owner",
+    auditRead: "admin",
+    trustRead: "viewer",
+    telemetryRead: "admin"
+  };
+
+  function buildCapabilities(role: UserRole): Record<string, boolean> {
+    const capabilities: Record<string, boolean> = {};
+    for (const [capability, minRole] of Object.entries(capabilityRoleThresholds)) {
+      capabilities[capability] = roleRank[role] >= roleRank[minRole];
+    }
+    return capabilities;
+  }
+
+  const createAndProvisionServer = async (
+    payload: z.infer<typeof createServerSchema>,
+    options?: {
+      requestedSavePath?: string;
+      worldImportPath?: string;
+    }
+  ) => {
     if (payload.maxMemoryMb < payload.minMemoryMb) {
       throw app.httpErrors.badRequest("maxMemoryMb must be >= minMemoryMb");
     }
@@ -684,7 +762,7 @@ export async function registerApiRoutes(
       );
     }
 
-    const serverRoot = resolveUniqueServerRootPath(payload.name);
+    const serverRoot = resolveRequestedServerRootPath(payload.name, options?.requestedSavePath ?? payload.rootPath ?? "");
 
     const initialRecord = store.createServer({
       name: payload.name,
@@ -716,6 +794,22 @@ export async function registerApiRoutes(
       deps.alerts.createAlert(initialRecord.id, "critical", "provision_failed", message);
       store.deleteServer(initialRecord.id);
       throw app.httpErrors.internalServerError(`Failed to provision server: ${message}`);
+    }
+
+    if (options?.worldImportPath) {
+      const source = path.resolve(options.worldImportPath);
+      if (!fs.existsSync(source)) {
+        deps.alerts.createAlert(initialRecord.id, "warning", "world_import_missing", `World import path does not exist: ${source}`);
+      } else {
+        const worldTarget = path.join(initialRecord.rootPath, "world");
+        try {
+          fs.rmSync(worldTarget, { recursive: true, force: true });
+          fs.cpSync(source, worldTarget, { recursive: true });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          deps.alerts.createAlert(initialRecord.id, "warning", "world_import_failed", message);
+        }
+      }
     }
 
     const server = store.getServerById(initialRecord.id);
@@ -1051,7 +1145,7 @@ export async function registerApiRoutes(
     const payload = parsedQuickStart.data;
     const type = payload.type ?? (payload.preset === "modded" ? "fabric" : "paper");
     const hostTotalMemoryMb = Math.max(1024, Math.floor(os.totalmem() / (1024 * 1024)));
-    const memoryProfile = resolveQuickStartMemoryProfile(payload.preset, hostTotalMemoryMb);
+    const memoryProfile = resolveQuickStartMemoryProfile(payload.preset, hostTotalMemoryMb, payload.memoryPreset);
     const catalog = await deps.versions.getSetupCatalog();
     const resolvedVersion = payload.mcVersion ?? pickLatestVersionForType(catalog, type);
     if (!resolvedVersion) {
@@ -1070,7 +1164,8 @@ export async function registerApiRoutes(
         maxMemoryMb: memoryProfile.maxMemoryMb,
         allowCracked: payload.allowCracked,
         enableGeyser: payload.preset !== "modded",
-        enableFloodgate: payload.preset !== "modded"
+        enableFloodgate: payload.preset !== "modded",
+        rootPath: payload.savePath
       })
     );
     if (!createPayload.enableGeyser) {
@@ -1086,7 +1181,10 @@ export async function registerApiRoutes(
       throw app.httpErrors.conflict(error instanceof Error ? error.message : "Unable to generate a unique server name.");
     }
 
-    const { server, policyFindings } = await createAndProvisionServer(createPayload);
+    const { server, policyFindings } = await createAndProvisionServer(createPayload, {
+      requestedSavePath: payload.savePath,
+      worldImportPath: payload.worldImportPath
+    });
 
     let blocked = false;
     let started = false;
@@ -1173,6 +1271,11 @@ export async function registerApiRoutes(
         enabled: payload.publicHosting,
         publicAddress: quickHostAddress,
         warning: quickHostingWarning
+      },
+      requested: {
+        memoryPreset: payload.memoryPreset,
+        savePath: payload.savePath ?? null,
+        worldImportPath: payload.worldImportPath ?? null
       }
     };
   });
@@ -1423,7 +1526,13 @@ export async function registerApiRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       deps.alerts.createAlert(server.id, "critical", "start_failed", message);
-      return reply.code(500).send({ ok: false, error: `Failed to start server: ${message}` });
+      const errorMessage = `Failed to start server: ${message}`;
+      return reply.code(500).send({
+        ok: false,
+        code: "server_start_failed",
+        message: errorMessage,
+        error: errorMessage
+      });
     }
 
     writeAudit(request.user!.username, "server.start", "server", id);
@@ -1471,9 +1580,12 @@ export async function registerApiRoutes(
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const errorMessage = `Failed to stop running server before safe restart: ${message}`;
       return reply.code(409).send({
         ok: false,
-        error: `Failed to stop running server before safe restart: ${message}`
+        code: "safe_restart_stop_failed",
+        message: errorMessage,
+        error: errorMessage
       });
     }
 
@@ -1503,7 +1615,13 @@ export async function registerApiRoutes(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       deps.alerts.createAlert(refreshedServer.id, "critical", "safe_restart_failed", message);
-      return reply.code(500).send({ ok: false, error: `Safe restart failed: ${message}` });
+      const errorMessage = `Safe restart failed: ${message}`;
+      return reply.code(500).send({
+        ok: false,
+        code: "safe_restart_failed",
+        message: errorMessage,
+        error: errorMessage
+      });
     }
 
     writeAudit(request.user!.username, "server.safe_restart", "server", id, {
@@ -1517,6 +1635,144 @@ export async function registerApiRoutes(
     };
   });
 
+  app.post("/servers/:id/simple-fix", { preHandler: [authenticate, requireRole("admin")] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const server = store.getServerById(id);
+    if (!server) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+
+    const completed: string[] = [];
+    const warnings: string[] = [];
+
+    try {
+      if (deps.runtime.isRunning(id) || server.status === "running" || server.status === "starting") {
+        await deps.tunnels.stopTunnelsForServer(id);
+        await deps.runtime.stop(id);
+        completed.push("stopped running server");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        ok: false,
+        status: "needs_manual",
+        summary: "Automatic fix could not stop the running server.",
+        code: "fix_stop_failed",
+        message: `Could not stop server before recovery: ${message}`,
+        completed,
+        warnings: [message]
+      };
+    }
+
+    const refreshedServer = store.getServerById(id);
+    if (!refreshedServer) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+
+    const preflightBefore = deps.preflight.run(refreshedServer);
+    const hasRepairableIssue = preflightBefore.issues.some(
+      (issue) => issue.code === "missing_eula" || issue.code === "missing_server_jar"
+    );
+    if (hasRepairableIssue) {
+      const repaired = await deps.setup.repairCoreFiles(refreshedServer);
+      if (repaired.repaired.length > 0) {
+        completed.push(`repaired core files (${repaired.repaired.join(", ")})`);
+      }
+    }
+
+    const latestSnapshot = store.listEditorFileSnapshots({
+      serverId: refreshedServer.id,
+      path: "server.properties",
+      limit: 1
+    })[0];
+    if (latestSnapshot) {
+      const resolved = resolveEditorFilePath(refreshedServer.rootPath, "server.properties");
+      if (fs.existsSync(resolved.absolutePath)) {
+        const existing = fs.readFileSync(resolved.absolutePath, "utf8");
+        if (existing !== latestSnapshot.content) {
+          store.createEditorFileSnapshot({
+            serverId: refreshedServer.id,
+            path: resolved.relativePath,
+            content: existing,
+            reason: "before_simple_fix"
+          });
+        }
+      }
+      fs.mkdirSync(path.dirname(resolved.absolutePath), { recursive: true });
+      fs.writeFileSync(resolved.absolutePath, latestSnapshot.content, "utf8");
+      store.pruneEditorFileSnapshots({
+        serverId: refreshedServer.id,
+        path: resolved.relativePath,
+        keep: 40
+      });
+      completed.push("rolled back server.properties snapshot");
+    }
+
+    const preflightAfter = deps.preflight.run(refreshedServer);
+    const criticalIssue = preflightAfter.issues.find((issue) => issue.severity === "critical");
+    if (criticalIssue) {
+      deps.alerts.createAlert(refreshedServer.id, "critical", "preflight_block", criticalIssue.message);
+      writeAudit(request.user!.username, "server.simple_fix", "server", id, {
+        status: "blocked",
+        completed,
+        warnings,
+        issue: criticalIssue.message
+      });
+      return {
+        ok: false,
+        status: "blocked",
+        summary: "Automatic fix is blocked by a critical preflight issue.",
+        code: "fix_blocked_preflight",
+        message: criticalIssue.message,
+        completed,
+        warnings,
+        preflight: preflightAfter
+      };
+    }
+
+    try {
+      await deps.runtime.start(refreshedServer);
+      await deps.tunnels.startTunnelsForServer(refreshedServer.id);
+      completed.push("restarted server safely");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      deps.alerts.createAlert(refreshedServer.id, "critical", "simple_fix_restart_failed", message);
+      warnings.push(message);
+      writeAudit(request.user!.username, "server.simple_fix", "server", id, {
+        status: "needs_manual",
+        completed,
+        warnings
+      });
+      return {
+        ok: false,
+        status: "needs_manual",
+        summary: "Automatic fix completed partially but restart still failed.",
+        code: "fix_restart_failed",
+        message,
+        completed,
+        warnings,
+        preflight: preflightAfter
+      };
+    }
+
+    writeAudit(request.user!.username, "server.simple_fix", "server", id, {
+      status: "fixed",
+      completed,
+      warnings
+    });
+
+    return {
+      ok: true,
+      status: "fixed",
+      summary: "Automatic fix completed successfully.",
+      code: "fixed",
+      message: "Server restarted and recovery actions completed.",
+      completed,
+      warnings,
+      preflight: preflightAfter
+    };
+  });
+
   app.post("/servers/:id/go-live", { preHandler: [authenticate, requireRole("admin")] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const server = store.getServerById(id);
@@ -1526,11 +1782,14 @@ export async function registerApiRoutes(
 
     const outcome = await goLiveForServer(server);
     if (!outcome.ok && !outcome.blocked && outcome.warning?.startsWith("Failed to start server:")) {
+      const errorMessage = outcome.warning;
       return reply.code(500).send({
         ok: false,
         blocked: false,
         preflight: outcome.preflight,
-        error: outcome.warning
+        code: "go_live_start_failed",
+        message: errorMessage,
+        error: errorMessage
       });
     }
 
@@ -1599,7 +1858,12 @@ export async function registerApiRoutes(
     }
 
     if (deps.runtime.isRunning(id) || server.status === "running" || server.status === "starting") {
-      return reply.code(409).send({ error: "Server must be stopped before running repair actions" });
+      const errorMessage = "Server must be stopped before running repair actions";
+      return reply.code(409).send({
+        code: "server_running_repair_blocked",
+        message: errorMessage,
+        error: errorMessage
+      });
     }
 
     const repaired = await deps.setup.repairCoreFiles(server);
@@ -1824,7 +2088,12 @@ export async function registerApiRoutes(
         })[0];
 
     if (!snapshot || snapshot.serverId !== server.id || snapshot.path !== resolved.relativePath) {
-      return reply.code(404).send({ error: "Snapshot not found for this file" });
+      const errorMessage = "Snapshot not found for this file";
+      return reply.code(404).send({
+        code: "snapshot_not_found",
+        message: errorMessage,
+        error: errorMessage
+      });
     }
 
     if (fs.existsSync(resolved.absolutePath)) {
@@ -1948,7 +2217,12 @@ export async function registerApiRoutes(
     }
 
     if (deps.runtime.isRunning(id) || server.status === "running" || server.status === "starting") {
-      return reply.code(409).send({ error: "Server must be stopped before restoring a backup" });
+      const errorMessage = "Server must be stopped before restoring a backup";
+      return reply.code(409).send({
+        code: "server_running_restore_blocked",
+        message: errorMessage,
+        error: errorMessage
+      });
     }
 
     const restore = await deps.backup.restoreBackup(id, backupId);
@@ -2136,6 +2410,85 @@ export async function registerApiRoutes(
             "Start your server to activate your public tunnel.",
             "Share the public address once it is active."
           ]
+    };
+  });
+
+  app.get("/servers/:id/simple-status", { preHandler: [authenticate] }, async (request) => {
+    const { id } = request.params as { id: string };
+    const server = store.getServerById(id);
+    if (!server) {
+      throw app.httpErrors.notFound("Server not found");
+    }
+
+    const existingTunnels = deps.tunnels.listTunnels(id);
+    await Promise.all(
+      existingTunnels
+        .filter((tunnel) => tunnel.provider === "playit")
+        .map((tunnel) =>
+          deps.tunnels.refreshPlayitTunnelPublicEndpoint(tunnel.id).catch(() => ({
+            synced: false
+          }))
+        )
+    );
+
+    const tunnels = deps.tunnels.listTunnels(id);
+    const activeTunnel = tunnels.find((tunnel) => tunnel.status === "active") ?? tunnels[0] ?? null;
+    const running = deps.runtime.isRunning(id) || server.status === "running" || server.status === "starting";
+    const hasResolvedPublicAddress = Boolean(activeTunnel && activeTunnel.publicHost !== "pending.playit.gg");
+    const publicAddress = hasResolvedPublicAddress ? `${activeTunnel!.publicHost}:${String(activeTunnel!.publicPort)}` : null;
+    const diagnostics = activeTunnel ? await deps.tunnels.getTunnelDiagnostics(activeTunnel) : null;
+    const preflight = deps.preflight.run(server);
+    const criticalIssue = preflight.issues.find((issue) => issue.severity === "critical");
+
+    const primaryAction = !running
+      ? {
+          id: "start_server",
+          label: "Start Server",
+          available: roleRank[request.user!.role] >= roleRank.moderator
+        }
+      : !publicAddress
+        ? {
+            id: "go_live",
+            label: "Go Live",
+            available: roleRank[request.user!.role] >= roleRank.admin
+          }
+        : {
+            id: "copy_invite",
+            label: "Copy Invite Address",
+            available: true
+          };
+
+    return {
+      server: {
+        id: server.id,
+        name: server.name,
+        status: server.status,
+        localAddress: `127.0.0.1:${String(server.port)}`,
+        inviteAddress: publicAddress
+      },
+      quickHosting: {
+        enabled: Boolean(activeTunnel),
+        status: activeTunnel?.status ?? "disabled",
+        endpointPending: Boolean(activeTunnel && !publicAddress),
+        diagnostics: diagnostics
+          ? {
+              message: diagnostics.message,
+              endpointAssigned: diagnostics.endpointAssigned,
+              retry: diagnostics.retry
+            }
+          : null
+      },
+      checklist: {
+        created: true,
+        running,
+        publicReady: Boolean(publicAddress)
+      },
+      primaryAction,
+      preflight: {
+        passed: preflight.passed,
+        blocked: Boolean(criticalIssue),
+        issues: preflight.issues
+      }
     };
   });
 

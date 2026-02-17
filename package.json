@@ -1,6 +1,6 @@
 {
   "name": "simpleservers",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "description": "SimpleServers - Open-source local-first Minecraft server hosting and administration platform",
   "license": "MIT",

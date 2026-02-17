@@ -97,6 +97,73 @@ type QuickStartResult = {
     publicAddress: string | null;
     warning: string | null;
   };
+  requested?: {
+    memoryPreset?: "small" | "recommended" | "large" | null;
+    savePath?: string | null;
+    worldImportPath?: string | null;
+  };
+};
+
+type CapabilityMap = Record<string, boolean>;
+
+type CapabilitiesResponse = {
+  user: {
+    id: string;
+    username: string;
+    role: UserRecord["role"];
+  };
+  capabilities: CapabilityMap;
+};
+
+type SimpleStatus = {
+  server: {
+    id: string;
+    name: string;
+    status: string;
+    localAddress: string;
+    inviteAddress: string | null;
+  };
+  quickHosting: {
+    enabled: boolean;
+    status: string;
+    endpointPending: boolean;
+    diagnostics: {
+      message: string | null;
+      endpointAssigned: boolean;
+      retry: {
+        nextAttemptAt: string | null;
+        nextAttemptInSeconds: number | null;
+        lastAttemptAt: string | null;
+        lastSuccessAt: string | null;
+      };
+    } | null;
+  };
+  checklist: {
+    created: boolean;
+    running: boolean;
+    publicReady: boolean;
+  };
+  primaryAction: {
+    id: "start_server" | "go_live" | "copy_invite";
+    label: string;
+    available: boolean;
+  };
+  preflight: {
+    passed: boolean;
+    blocked: boolean;
+    issues: PreflightIssue[];
+  };
+};
+
+type SimpleFixResult = {
+  ok: boolean;
+  status: "fixed" | "blocked" | "needs_manual";
+  code: string;
+  message: string;
+  summary: string;
+  completed: string[];
+  warnings: string[];
+  preflight?: PreflightReport;
 };
 
 type InstalledPackage = {
@@ -399,7 +466,7 @@ type TrustReport = {
   };
 };
 
-type AppView = "overview" | "setup" | "manage" | "content" | "advanced" | "trust";
+type AppView = "overview" | "setup" | "share" | "manage" | "content" | "advanced" | "trust";
 
 type ViewerIdentity = {
   username: string;
@@ -681,6 +748,9 @@ export default function App() {
   const [showPlayitSecretForm, setShowPlayitSecretForm] = useState(false);
   const [playitSecretInput, setPlayitSecretInput] = useState("");
   const [savingPlayitSecret, setSavingPlayitSecret] = useState(false);
+  const [simpleStatus, setSimpleStatus] = useState<SimpleStatus | null>(null);
+  const [runningSimpleFix, setRunningSimpleFix] = useState(false);
+  const [simpleFixResult, setSimpleFixResult] = useState<SimpleFixResult | null>(null);
   const [remoteState, setRemoteState] = useState<RemoteState | null>(null);
   const [javaChannels, setJavaChannels] = useState<JavaChannel[]>([]);
   const [audit, setAudit] = useState<Audit[]>([]);
@@ -689,6 +759,7 @@ export default function App() {
   const [catalog, setCatalog] = useState<VersionCatalog>({ vanilla: [], paper: [], fabric: [] });
   const [setupPresets, setSetupPresets] = useState<SetupPreset[]>(fallbackSetupPresets);
   const [hardware, setHardware] = useState<HardwareProfile | null>(null);
+  const [capabilities, setCapabilities] = useState<CapabilityMap>({});
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
 
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
@@ -708,8 +779,14 @@ export default function App() {
     allowCracked: false,
     enableGeyser: true,
     enableFloodgate: true,
-    quickPublicHosting: true
+    quickPublicHosting: true,
+    memoryPreset: "recommended" as "small" | "recommended" | "large",
+    savePath: "",
+    worldSource: "new" as "new" | "import",
+    worldImportPath: ""
   });
+  const [createWizardStep, setCreateWizardStep] = useState(1);
+  const [createWizardError, setCreateWizardError] = useState<string | null>(null);
 
   const [taskForm, setTaskForm] = useState({
     serverId: "",
@@ -955,14 +1032,32 @@ export default function App() {
     };
   }
 
+  function toErrorMessage(value: unknown): string {
+    return value instanceof Error ? value.message : String(value);
+  }
+
   async function connect(): Promise<void> {
     try {
       setClientAuth();
-      const me = await api.current.get<{ user: { username: string; role?: UserRecord["role"] } }>("/me");
-      setViewer({ username: me.user.username, role: me.user.role ?? null });
+      const [meResult, capabilitiesResult] = await Promise.allSettled([
+        api.current.get<{ user: { username: string; role?: UserRecord["role"] } }>("/me"),
+        api.current.get<CapabilitiesResponse>("/system/capabilities")
+      ]);
+
+      if (meResult.status === "rejected") {
+        throw meResult.reason;
+      }
+
+      const me = meResult.value;
+      const capabilityPayload = capabilitiesResult.status === "fulfilled" ? capabilitiesResult.value : null;
+      setViewer({
+        username: capabilityPayload?.user.username ?? me.user.username,
+        role: capabilityPayload?.user.role ?? me.user.role ?? null
+      });
+      setCapabilities(capabilityPayload?.capabilities ?? {});
       setConnected(true);
-      setError(null);
       await refreshAll();
+      setError(null);
       if (markTelemetryKey("ui.connect.success")) {
         void trackTelemetryEvent("ui.connect.success", {
           role: me.user.role ?? "unknown"
@@ -971,56 +1066,95 @@ export default function App() {
     } catch (e) {
       setConnected(false);
       setViewer(null);
-      setError(e instanceof Error ? e.message : String(e));
+      setCapabilities({});
+      setError(toErrorMessage(e));
     }
   }
 
-  async function refreshAll(): Promise<void> {
+  async function refreshAll(options?: { background?: boolean }): Promise<void> {
+    const background = options?.background ?? false;
+
     try {
-      setBusy(true);
-      const [serversRes, alertsRes, tasksRes, tunnelsRes, auditRes, statusRes, catalogRes, presetsRes, hardwareRes] = await Promise.all([
+      if (!background) {
+        setBusy(true);
+      }
+
+      const coreResults = await Promise.allSettled([
         api.current.get<{ servers: Server[] }>("/servers"),
         api.current.get<{ alerts: Alert[] }>("/alerts"),
         api.current.get<{ tasks: Task[] }>("/tasks"),
         api.current.get<{ tunnels: Tunnel[] }>("/tunnels"),
-        api.current.get<{ logs: Audit[] }>("/audit"),
         api.current.get<{ servers: { total: number; running: number; crashed: number }; alerts: { open: number; total: number } }>("/system/status"),
         api.current.get<{ catalog: VersionCatalog }>("/setup/catalog"),
         api.current.get<{ presets: SetupPreset[] }>("/setup/presets"),
-        api.current.get<HardwareProfile>("/system/hardware")
+        api.current.get<HardwareProfile>("/system/hardware"),
+        api.current.get<CapabilitiesResponse>("/system/capabilities")
       ]);
 
-      setServers(serversRes.servers);
-      setAlerts(alertsRes.alerts);
-      setTasks(tasksRes.tasks);
-      setTunnels(tunnelsRes.tunnels);
-      setAudit(auditRes.logs);
-      setStatus(statusRes);
-      setCatalog(catalogRes.catalog);
-      setSetupPresets(presetsRes.presets.length > 0 ? presetsRes.presets : fallbackSetupPresets);
-      setHardware(hardwareRes);
+      const [serversRes, alertsRes, tasksRes, tunnelsRes, statusRes, catalogRes, presetsRes, hardwareRes, capabilitiesRes] = coreResults;
+      let nextServers = servers;
+      const refreshWarnings: string[] = [];
 
-      const hasSelectedServer = selectedServerId ? serversRes.servers.some((server) => server.id === selectedServerId) : false;
-      if ((!selectedServerId || !hasSelectedServer) && serversRes.servers.length > 0) {
-        setSelectedServerId(serversRes.servers[0].id);
+      if (serversRes.status === "fulfilled") {
+        nextServers = serversRes.value.servers;
+        setServers(nextServers);
+      } else {
+        refreshWarnings.push(`Servers: ${toErrorMessage(serversRes.reason)}`);
       }
 
-      if (!createServer.mcVersion) {
-        const v = catalogRes.catalog.paper[0]?.id ?? catalogRes.catalog.vanilla[0]?.id ?? "1.21.1";
-        setCreateServer((prev) => ({ ...prev, mcVersion: v }));
+      if (alertsRes.status === "fulfilled") {
+        setAlerts(alertsRes.value.alerts);
+      }
+      if (tasksRes.status === "fulfilled") {
+        setTasks(tasksRes.value.tasks);
+      }
+      if (tunnelsRes.status === "fulfilled") {
+        setTunnels(tunnelsRes.value.tunnels);
+      }
+      if (statusRes.status === "fulfilled") {
+        setStatus(statusRes.value);
+      }
+      if (catalogRes.status === "fulfilled") {
+        setCatalog(catalogRes.value.catalog);
+        if (!createServer.mcVersion) {
+          const v = catalogRes.value.catalog.paper[0]?.id ?? catalogRes.value.catalog.vanilla[0]?.id ?? "1.21.1";
+          setCreateServer((prev) => ({ ...prev, mcVersion: v }));
+        }
+      }
+      if (presetsRes.status === "fulfilled") {
+        setSetupPresets(presetsRes.value.presets.length > 0 ? presetsRes.value.presets : fallbackSetupPresets);
+      }
+      if (hardwareRes.status === "fulfilled") {
+        setHardware(hardwareRes.value);
+      }
+      if (capabilitiesRes.status === "fulfilled") {
+        setCapabilities(capabilitiesRes.value.capabilities);
+        setViewer((previous) =>
+          previous
+            ? {
+                username: capabilitiesRes.value.user.username,
+                role: capabilitiesRes.value.user.role
+              }
+            : previous
+        );
       }
 
-      if (!taskForm.serverId && serversRes.servers.length > 0) {
-        setTaskForm((prev) => ({ ...prev, serverId: serversRes.servers[0].id }));
+      const hasSelectedServer = selectedServerId ? nextServers.some((server) => server.id === selectedServerId) : false;
+      if ((!selectedServerId || !hasSelectedServer) && nextServers.length > 0) {
+        setSelectedServerId(nextServers[0].id);
       }
 
-      if (!tunnelForm.serverId && serversRes.servers.length > 0) {
-        setTunnelForm((prev) => ({ ...prev, serverId: serversRes.servers[0].id, localPort: serversRes.servers[0].port }));
+      if (!taskForm.serverId && nextServers.length > 0) {
+        setTaskForm((prev) => ({ ...prev, serverId: nextServers[0].id }));
       }
 
-      const activeServerId = hasSelectedServer ? selectedServerId : serversRes.servers[0]?.id;
+      if (!tunnelForm.serverId && nextServers.length > 0) {
+        setTunnelForm((prev) => ({ ...prev, serverId: nextServers[0].id, localPort: nextServers[0].port }));
+      }
+
+      const activeServerId = hasSelectedServer ? selectedServerId : nextServers[0]?.id;
       if (activeServerId) {
-        await Promise.all([refreshPackages(activeServerId), refreshServerOperations(activeServerId)]);
+        await Promise.all([refreshPackages(activeServerId, { background }), refreshServerOperations(activeServerId, { background })]);
       } else {
         setInstalledPackages([]);
         setPackageUpdates([]);
@@ -1031,6 +1165,8 @@ export default function App() {
         setCrashReports([]);
         setQuickHostingStatus(null);
         setQuickHostingDiagnostics(null);
+        setSimpleStatus(null);
+        setSimpleFixResult(null);
         setPerformanceAdvisor(null);
         setEditorFiles([]);
         setEditorFileSnapshots([]);
@@ -1040,13 +1176,21 @@ export default function App() {
         setServerPropertySnapshots([]);
       }
 
-      await refreshAdminData();
+      await refreshAdminData({ background });
 
-      setError(null);
+      if (!background) {
+        if (refreshWarnings.length > 0) {
+          setError(refreshWarnings.join(" | "));
+        }
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (!background) {
+        setError(toErrorMessage(e));
+      }
     } finally {
-      setBusy(false);
+      if (!background) {
+        setBusy(false);
+      }
     }
   }
 
@@ -1059,77 +1203,152 @@ export default function App() {
     }
   }
 
-  async function refreshPackages(serverId: string): Promise<void> {
-    try {
-      const [packagesRes, updatesRes] = await Promise.all([
-        api.current.get<{ packages: InstalledPackage[] }>(`/servers/${serverId}/packages`),
-        api.current.get<{ updates: PackageUpdate[] }>(`/servers/${serverId}/packages/updates`)
-      ]);
-      setInstalledPackages(packagesRes.packages);
-      setPackageUpdates(updatesRes.updates);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+  async function refreshPackages(serverId: string, options?: { background?: boolean }): Promise<void> {
+    const background = options?.background ?? false;
+    const [packagesRes, updatesRes] = await Promise.allSettled([
+      api.current.get<{ packages: InstalledPackage[] }>(`/servers/${serverId}/packages`),
+      api.current.get<{ updates: PackageUpdate[] }>(`/servers/${serverId}/packages/updates`)
+    ]);
+
+    if (packagesRes.status === "fulfilled") {
+      setInstalledPackages(packagesRes.value.packages);
+    }
+    if (updatesRes.status === "fulfilled") {
+      setPackageUpdates(updatesRes.value.updates);
+    }
+
+    if (!background && (packagesRes.status === "rejected" || updatesRes.status === "rejected")) {
+      const message =
+        packagesRes.status === "rejected"
+          ? toErrorMessage(packagesRes.reason)
+          : updatesRes.status === "rejected"
+            ? toErrorMessage(updatesRes.reason)
+            : null;
+      if (message) {
+        setError(message);
+      }
     }
   }
 
-  async function refreshServerOperations(serverId: string): Promise<void> {
-    try {
-      const [backupsRes, policyRes, preflightRes, crashRes, quickHostRes, quickHostDiagnosticsRes, performanceRes] = await Promise.all([
-        api.current.get<{ backups: BackupRecord[] }>(`/servers/${serverId}/backups`),
-        api.current.get<{ policy: BackupPolicy }>(`/servers/${serverId}/backup-policy`),
-        api.current.get<{ report: PreflightReport }>(`/servers/${serverId}/preflight`),
-        api.current.get<{ reports: CrashReport[] }>(`/servers/${serverId}/crash-reports`),
-        api.current.get<QuickHostingStatus>(`/servers/${serverId}/public-hosting/status`),
-        api.current.get<QuickHostingDiagnostics>(`/servers/${serverId}/public-hosting/diagnostics`),
-        api.current.get<PerformanceAdvisorReport>(`/servers/${serverId}/performance/advisor?hours=24`)
-      ]);
+  async function refreshServerOperations(serverId: string, options?: { background?: boolean }): Promise<void> {
+    const background = options?.background ?? false;
 
-      setBackups(backupsRes.backups);
-      setBackupPolicy(policyRes.policy);
-      setPreflight(preflightRes.report);
-      setCrashReports(crashRes.reports);
-      setQuickHostingStatus(quickHostRes);
-      setQuickHostingDiagnostics(quickHostDiagnosticsRes);
-      setPerformanceAdvisor(performanceRes);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+    const [backupsRes, policyRes, preflightRes, crashRes, quickHostRes, quickHostDiagnosticsRes, performanceRes, simpleStatusRes] = await Promise.allSettled([
+      api.current.get<{ backups: BackupRecord[] }>(`/servers/${serverId}/backups`),
+      api.current.get<{ policy: BackupPolicy }>(`/servers/${serverId}/backup-policy`),
+      api.current.get<{ report: PreflightReport }>(`/servers/${serverId}/preflight`),
+      api.current.get<{ reports: CrashReport[] }>(`/servers/${serverId}/crash-reports`),
+      api.current.get<QuickHostingStatus>(`/servers/${serverId}/public-hosting/status`),
+      api.current.get<QuickHostingDiagnostics>(`/servers/${serverId}/public-hosting/diagnostics`),
+      api.current.get<PerformanceAdvisorReport>(`/servers/${serverId}/performance/advisor?hours=24`),
+      api.current.get<SimpleStatus>(`/servers/${serverId}/simple-status`)
+    ]);
+
+    if (backupsRes.status === "fulfilled") {
+      setBackups(backupsRes.value.backups);
+    }
+    if (policyRes.status === "fulfilled") {
+      setBackupPolicy(policyRes.value.policy);
+    }
+    if (preflightRes.status === "fulfilled") {
+      setPreflight(preflightRes.value.report);
+    }
+    if (crashRes.status === "fulfilled") {
+      setCrashReports(crashRes.value.reports);
+    }
+    if (quickHostRes.status === "fulfilled") {
+      setQuickHostingStatus(quickHostRes.value);
+    }
+    if (quickHostDiagnosticsRes.status === "fulfilled") {
+      setQuickHostingDiagnostics(quickHostDiagnosticsRes.value);
+    }
+    if (performanceRes.status === "fulfilled") {
+      setPerformanceAdvisor(performanceRes.value);
+    }
+    if (simpleStatusRes.status === "fulfilled") {
+      setSimpleStatus(simpleStatusRes.value);
+    }
+
+    if (!background) {
+      const failure = [backupsRes, policyRes, preflightRes, crashRes, quickHostRes, quickHostDiagnosticsRes, performanceRes, simpleStatusRes].find(
+        (entry) => entry.status === "rejected"
+      ) as PromiseRejectedResult | undefined;
+      if (failure) {
+        setError(toErrorMessage(failure.reason));
+      }
     }
   }
 
-  async function refreshAdminData(): Promise<void> {
-    try {
-      const [usersRes, remoteRes, javaRes, funnelRes, trustRes] = await Promise.all([
-        api.current.get<{ users: UserRecord[] }>("/users"),
-        api.current.get<{ remote: RemoteState }>("/remote/status"),
-        api.current.get<{ channels: JavaChannel[] }>("/system/java/channels"),
-        api.current.get<TelemetryFunnel>("/telemetry/funnel?hours=168"),
-        api.current.get<TrustReport>("/system/trust")
-      ]);
+  async function refreshAdminData(options?: { background?: boolean }): Promise<void> {
+    const background = options?.background ?? false;
 
-      setUsers(usersRes.users);
-      setRemoteState(remoteRes.remote);
-      setJavaChannels(javaRes.channels);
-      setFunnelMetrics(funnelRes);
-      setTrustReport(trustRes);
+    const canManageUsers = capabilities.userManage ?? viewer?.role === "owner";
+    const canManageRemote = capabilities.remoteConfig ?? viewer?.role === "owner";
+    const canReadTelemetry = capabilities.telemetryRead ?? (viewer?.role === "owner" || viewer?.role === "admin");
+    const canReadAudit = capabilities.auditRead ?? (viewer?.role === "owner" || viewer?.role === "admin");
+    const canReadTrust = capabilities.trustRead ?? true;
 
+    const [usersRes, remoteRes, javaRes, funnelRes, trustRes, auditRes] = await Promise.allSettled([
+      canManageUsers ? api.current.get<{ users: UserRecord[] }>("/users") : Promise.resolve(null),
+      canManageRemote ? api.current.get<{ remote: RemoteState }>("/remote/status") : Promise.resolve(null),
+      canReadTelemetry ? api.current.get<{ channels: JavaChannel[] }>("/system/java/channels") : Promise.resolve(null),
+      canReadTelemetry ? api.current.get<TelemetryFunnel>("/telemetry/funnel?hours=168") : Promise.resolve(null),
+      canReadTrust ? api.current.get<TrustReport>("/system/trust") : Promise.resolve(null),
+      canReadAudit ? api.current.get<{ logs: Audit[] }>("/audit") : Promise.resolve(null)
+    ]);
+
+    const usersPayload = usersRes.status === "fulfilled" ? usersRes.value : null;
+    if (usersPayload) {
+      setUsers(usersPayload.users);
       setRotateTokenForm((previous) => ({
         ...previous,
-        userId: previous.userId || usersRes.users[0]?.id || ""
+        userId: previous.userId || usersPayload.users[0]?.id || ""
       }));
+    } else if (!canManageUsers) {
+      setUsers([]);
+    }
 
+    if (remoteRes.status === "fulfilled" && remoteRes.value) {
+      setRemoteState(remoteRes.value.remote);
       setRemoteConfigForm({
-        enabled: remoteRes.remote.enabled,
-        requireToken: remoteRes.remote.requireToken,
-        allowedOriginsCsv: remoteRes.remote.allowedOrigins.join(", ")
+        enabled: remoteRes.value.remote.enabled,
+        requireToken: remoteRes.value.remote.requireToken,
+        allowedOriginsCsv: remoteRes.value.remote.allowedOrigins.join(", ")
       });
-    } catch {
-      // non-owner users may not have access to these endpoints
+    } else if (!canManageRemote) {
+      setRemoteState(null);
+    }
+
+    if (javaRes.status === "fulfilled" && javaRes.value) {
+      setJavaChannels(javaRes.value.channels);
+    } else if (!canReadTelemetry) {
+      setJavaChannels([]);
+    }
+
+    if (funnelRes.status === "fulfilled" && funnelRes.value) {
+      setFunnelMetrics(funnelRes.value);
+    } else if (!canReadTelemetry) {
       setFunnelMetrics(null);
-      try {
-        const trust = await api.current.get<TrustReport>("/system/trust");
-        setTrustReport(trust);
-      } catch {
-        setTrustReport(null);
+    }
+
+    if (trustRes.status === "fulfilled" && trustRes.value) {
+      setTrustReport(trustRes.value);
+    } else if (!canReadTrust) {
+      setTrustReport(null);
+    }
+
+    if (auditRes.status === "fulfilled" && auditRes.value) {
+      setAudit(auditRes.value.logs);
+    } else if (!canReadAudit) {
+      setAudit([]);
+    }
+
+    if (!background) {
+      const privilegedFailure = [usersRes, remoteRes, javaRes, funnelRes, trustRes, auditRes].find(
+        (entry) => entry.status === "rejected"
+      ) as PromiseRejectedResult | undefined;
+      if (privilegedFailure && !canReadAudit && !canManageUsers && !canManageRemote && !canReadTelemetry && !canReadTrust) {
+        return;
       }
     }
   }
@@ -1217,7 +1436,7 @@ export default function App() {
     }
 
     const timer = setInterval(() => {
-      void refreshAll();
+      void refreshAll({ background: true });
       if (selectedServerId && !liveConsole) {
         void refreshLogs(selectedServerId);
       }
@@ -1269,7 +1488,14 @@ export default function App() {
   useEffect(() => {
     setHasSearchedContent(false);
     setContentResults([]);
+    setSimpleFixResult(null);
   }, [selectedServerId]);
+
+  useEffect(() => {
+    if (activeView !== "setup") {
+      setCreateWizardError(null);
+    }
+  }, [activeView]);
 
   useEffect(() => {
     if (!connected || !selectedServerId || !liveConsole) {
@@ -1309,7 +1535,7 @@ export default function App() {
     window.localStorage.setItem("simpleservers.ui.mode", experienceMode);
     const advancedMode = experienceMode === "advanced";
     setPowerMode(advancedMode);
-    if (!advancedMode && activeView === "advanced") {
+    if (!advancedMode && (activeView === "advanced" || activeView === "content" || activeView === "trust")) {
       setActiveView("overview");
     }
   }, [experienceMode, activeView]);
@@ -1692,6 +1918,84 @@ export default function App() {
     }
   }
 
+  const beginnerPrimaryAction = useMemo(() => {
+    if (servers.length === 0) {
+      return {
+        id: "create_server" as const,
+        label: "Create Server",
+        detail: "Create your first Minecraft server with recommended defaults.",
+        tone: "tone-warn" as const
+      };
+    }
+
+    if (!selectedServerId) {
+      return {
+        id: "select_server" as const,
+        label: "Choose Active Server",
+        detail: "Pick a server to continue setup.",
+        tone: "tone-warn" as const
+      };
+    }
+
+    if (simpleStatus?.primaryAction.id === "start_server") {
+      return {
+        id: "start_server" as const,
+        label: "Start Server",
+        detail: "Start your server so players can connect.",
+        tone: "tone-warn" as const
+      };
+    }
+
+    if (simpleStatus?.primaryAction.id === "go_live" || !simpleStatus?.server.inviteAddress) {
+      return {
+        id: "go_live" as const,
+        label: "Go Live",
+        detail: "Create your shareable invite address for friends.",
+        tone: "tone-warn" as const
+      };
+    }
+
+    return {
+      id: "copy_invite" as const,
+      label: "Copy Invite Address",
+      detail: simpleStatus.server.inviteAddress ?? "Invite address is ready.",
+      tone: "tone-ok" as const
+    };
+  }, [servers.length, selectedServerId, simpleStatus]);
+
+  function runBeginnerPrimaryAction(): void {
+    if (beginnerPrimaryAction.id === "create_server") {
+      setActiveView("setup");
+      return;
+    }
+
+    if (beginnerPrimaryAction.id === "select_server") {
+      setActiveView("overview");
+      return;
+    }
+
+    if (!selectedServerId) {
+      return;
+    }
+
+    if (beginnerPrimaryAction.id === "start_server") {
+      void serverAction(selectedServerId, "start");
+      return;
+    }
+
+    if (beginnerPrimaryAction.id === "go_live") {
+      void goLiveNow();
+      return;
+    }
+
+    if (beginnerPrimaryAction.id === "copy_invite") {
+      const invite = simpleStatus?.server.inviteAddress ?? quickHostingStatus?.publicAddress;
+      if (invite) {
+        copyAddress(invite);
+      }
+    }
+  }
+
   const commandPaletteActions = useMemo<CommandPaletteAction[]>(() => {
     const actions: CommandPaletteAction[] = [
       {
@@ -1705,38 +2009,31 @@ export default function App() {
       },
       {
         id: "view-overview",
-        label: "Open Overview",
-        detail: "Command center and hosting journey.",
+        label: "Open Home",
+        detail: "Primary app dashboard with one recommended action.",
         keywords: ["overview", "home", "dashboard"],
         run: () => setActiveView("overview")
       },
       {
         id: "view-setup",
-        label: "Open Setup",
-        detail: "Guided server creation and launch presets.",
+        label: "Open Create",
+        detail: "Beginner server setup wizard.",
         keywords: ["setup", "create", "launch"],
         run: () => setActiveView("setup")
       },
       {
+        id: "view-share",
+        label: "Open Share",
+        detail: "Invite address and go-live progress.",
+        keywords: ["share", "invite", "public", "address"],
+        run: () => setActiveView("share")
+      },
+      {
         id: "view-manage",
-        label: "Open Manage",
-        detail: "Crash doctor, backups, and config management.",
+        label: "Open Fix",
+        detail: "Automatic recovery and guided manual steps.",
         keywords: ["manage", "fix", "backup", "crash"],
         run: () => setActiveView("manage")
-      },
-      {
-        id: "view-content",
-        label: "Open Content",
-        detail: "Install and update mods/plugins/modpacks.",
-        keywords: ["content", "mods", "plugins", "packages"],
-        run: () => setActiveView("content")
-      },
-      {
-        id: "view-trust",
-        label: "Open Trust Workspace",
-        detail: "Review build signature and security controls.",
-        keywords: ["trust", "security", "signature"],
-        run: () => setActiveView("trust")
       },
       {
         id: "refresh-all",
@@ -1751,6 +2048,22 @@ export default function App() {
     ];
 
     if (isAdvancedExperience) {
+      actions.push(
+        {
+          id: "view-content",
+          label: "Open Content",
+          detail: "Install and update mods/plugins/modpacks.",
+          keywords: ["content", "mods", "plugins", "packages"],
+          run: () => setActiveView("content")
+        },
+        {
+          id: "view-trust",
+          label: "Open Trust Workspace",
+          detail: "Review build signature and security controls.",
+          keywords: ["trust", "security", "signature"],
+          run: () => setActiveView("trust")
+        }
+      );
       actions.push({
         id: "view-advanced",
         label: "Open Advanced",
@@ -1890,7 +2203,7 @@ export default function App() {
     }
 
     const timer = setInterval(() => {
-      void refreshServerOperations(selectedServerId);
+      void refreshServerOperations(selectedServerId, { background: true });
     }, 5000);
 
     return () => clearInterval(timer);
@@ -1971,6 +2284,55 @@ export default function App() {
     setError(null);
   }
 
+  function applyBeginnerServerType(type: "paper" | "vanilla" | "fabric"): void {
+    setCreateServer((previous) => ({
+      ...previous,
+      type,
+      preset: type === "fabric" ? "modded" : type === "vanilla" ? "custom" : previous.preset === "modded" ? "survival" : previous.preset
+    }));
+  }
+
+  function validateCreateWizardStep(step: number): string | null {
+    if (step === 1 && createServer.name.trim().length < 2) {
+      return "Choose a server name with at least 2 characters.";
+    }
+    if (step === 2 && createServer.worldSource === "import" && createServer.worldImportPath.trim().length === 0) {
+      return "Add the world folder path to import your existing world.";
+    }
+    if (step === 3 && createServer.savePath.trim().length > 0 && createServer.savePath.trim().length < 2) {
+      return "Save location looks incomplete. Use a full folder path or leave it blank.";
+    }
+    return null;
+  }
+
+  function goToNextCreateWizardStep(): void {
+    const issue = validateCreateWizardStep(createWizardStep);
+    if (issue) {
+      setCreateWizardError(issue);
+      return;
+    }
+    setCreateWizardError(null);
+    setCreateWizardStep((previous) => Math.min(4, previous + 1));
+  }
+
+  function goToPreviousCreateWizardStep(): void {
+    setCreateWizardError(null);
+    setCreateWizardStep((previous) => Math.max(1, previous - 1));
+  }
+
+  async function launchBeginnerWizard(): Promise<void> {
+    const issue = validateCreateWizardStep(createWizardStep);
+    if (issue) {
+      setCreateWizardError(issue);
+      return;
+    }
+    setCreateWizardError(null);
+    const launched = await quickStartNow();
+    if (launched) {
+      setActiveView("share");
+    }
+  }
+
   async function createServerSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
     setBusy(true);
@@ -2004,15 +2366,20 @@ export default function App() {
     }
   }
 
-  async function quickStartNow(): Promise<void> {
+  async function quickStartNow(): Promise<boolean> {
     setBusy(true);
     try {
+      const worldImportPath = createServer.worldSource === "import" ? createServer.worldImportPath.trim() : undefined;
       const response = await api.current.post<QuickStartResult>("/servers/quickstart", {
         name: createServer.name,
         preset: createServer.preset,
+        type: createServer.type,
         publicHosting: createServer.quickPublicHosting,
         startServer: true,
-        allowCracked: createServer.allowCracked
+        allowCracked: createServer.allowCracked,
+        memoryPreset: createServer.memoryPreset,
+        savePath: createServer.savePath.trim() || undefined,
+        worldImportPath
       });
       if (response.server?.id) {
         setSelectedServerId(response.server.id);
@@ -2050,12 +2417,17 @@ export default function App() {
       if (response.warning) {
         notices.push(response.warning);
       }
+      if (response.requested?.savePath) {
+        notices.push(`Saved under: ${response.requested.savePath}`);
+      }
 
       setNotice(notices.join(" "));
       setError(null);
+      return true;
     } catch (e) {
       setNotice(null);
-      setError(e instanceof Error ? e.message : String(e));
+      setError(toErrorMessage(e));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -2608,6 +2980,34 @@ export default function App() {
     }
   }
 
+  async function runAutomaticSimpleFix(): Promise<void> {
+    if (!selectedServerId) {
+      return;
+    }
+
+    try {
+      setRunningSimpleFix(true);
+      const outcome = await api.current.post<SimpleFixResult>(`/servers/${selectedServerId}/simple-fix`, {});
+      setSimpleFixResult(outcome);
+      if (outcome.status === "fixed") {
+        setNotice(outcome.summary);
+        setError(null);
+      } else if (outcome.status === "blocked") {
+        setNotice(outcome.summary);
+        setError(outcome.message);
+      } else {
+        setNotice(outcome.summary);
+        setError(outcome.message);
+      }
+      await refreshServerOperations(selectedServerId);
+      await refreshAll();
+    } catch (e) {
+      setError(toErrorMessage(e));
+    } finally {
+      setRunningSimpleFix(false);
+    }
+  }
+
   async function runCrashDoctor(): Promise<void> {
     if (!selectedServerId) {
       return;
@@ -2971,39 +3371,48 @@ export default function App() {
 
       <section className="panel control-strip" id="main-content">
         <nav className="view-nav" aria-label="Workspace views">
-          <button className={activeView === "overview" ? "active" : ""} onClick={() => setActiveView("overview")} type="button">
-            Overview
-          </button>
-          <button className={activeView === "setup" ? "active" : ""} onClick={() => setActiveView("setup")} type="button">
-            Setup
-          </button>
-          <button className={activeView === "manage" ? "active" : ""} onClick={() => setActiveView("manage")} type="button">
-            Manage
-          </button>
-          <button className={activeView === "content" ? "active" : ""} onClick={() => setActiveView("content")} type="button">
-            Content
-          </button>
-          <button className={activeView === "trust" ? "active" : ""} onClick={() => setActiveView("trust")} type="button">
-            Trust
-          </button>
           {isAdvancedExperience ? (
-            <button className={activeView === "advanced" ? "active" : ""} onClick={() => setActiveView("advanced")} type="button">
-              Advanced
-            </button>
-          ) : null}
+            <>
+              <button className={activeView === "overview" ? "active" : ""} onClick={() => setActiveView("overview")} type="button">
+                Home
+              </button>
+              <button className={activeView === "setup" ? "active" : ""} onClick={() => setActiveView("setup")} type="button">
+                Create
+              </button>
+              <button className={activeView === "share" ? "active" : ""} onClick={() => setActiveView("share")} type="button">
+                Share
+              </button>
+              <button className={activeView === "manage" ? "active" : ""} onClick={() => setActiveView("manage")} type="button">
+                Fix
+              </button>
+              <button className={activeView === "content" ? "active" : ""} onClick={() => setActiveView("content")} type="button">
+                Content
+              </button>
+              <button className={activeView === "trust" ? "active" : ""} onClick={() => setActiveView("trust")} type="button">
+                Trust
+              </button>
+              <button className={activeView === "advanced" ? "active" : ""} onClick={() => setActiveView("advanced")} type="button">
+                Advanced
+              </button>
+            </>
+          ) : (
+            <>
+              <button className={activeView === "overview" ? "active" : ""} onClick={() => setActiveView("overview")} type="button">
+                Home
+              </button>
+              <button className={activeView === "setup" ? "active" : ""} onClick={() => setActiveView("setup")} type="button">
+                Create
+              </button>
+              <button className={activeView === "share" ? "active" : ""} onClick={() => setActiveView("share")} type="button">
+                Share
+              </button>
+              <button className={activeView === "manage" ? "active" : ""} onClick={() => setActiveView("manage")} type="button">
+                Fix
+              </button>
+            </>
+          )}
         </nav>
         <div className="inline-actions">
-          <label className="compact-field">
-            Mode
-            <select
-              aria-label="Experience mode"
-              value={experienceMode}
-              onChange={(event) => setExperienceMode(event.target.value as ExperienceMode)}
-            >
-              <option value="beginner">Beginner</option>
-              <option value="advanced">Advanced</option>
-            </select>
-          </label>
           <label className="compact-field">
             Theme
             <select
@@ -3017,13 +3426,36 @@ export default function App() {
               <option value="system">System</option>
             </select>
           </label>
-          <label className="compact-field">
-            Layout
-            <select aria-label="Layout density" value={focusMode ? "focus" : "full"} onChange={(event) => setFocusMode(event.target.value === "focus")}>
-              <option value="focus">Focus (Recommended)</option>
-              <option value="full">Full Dashboard</option>
-            </select>
-          </label>
+          {isAdvancedExperience ? (
+            <label className="compact-field">
+              Layout
+              <select aria-label="Layout density" value={focusMode ? "focus" : "full"} onChange={(event) => setFocusMode(event.target.value === "focus")}>
+                <option value="focus">Focus (Recommended)</option>
+                <option value="full">Full Dashboard</option>
+              </select>
+            </label>
+          ) : null}
+          {isAdvancedExperience ? (
+            <button
+              type="button"
+              onClick={() => {
+                setExperienceMode("beginner");
+                setActiveView("overview");
+              }}
+            >
+              Beginner App
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setExperienceMode("advanced");
+                setActiveView("advanced");
+              }}
+            >
+              Advanced Controls
+            </button>
+          )}
           <button type="button" onClick={() => void refreshAll()} disabled={!connected || busy}>
             {busy ? "Refreshing..." : "Refresh"}
           </button>
@@ -3060,10 +3492,12 @@ export default function App() {
           ) : null}
         </div>
         <div className="inline-actions">
-          <label className="compact-field">
-            Search Servers
-            <input value={serverSearch} onChange={(e) => setServerSearch(e.target.value)} placeholder="name, version, port..." />
-          </label>
+          {isAdvancedExperience ? (
+            <label className="compact-field">
+              Search Servers
+              <input value={serverSearch} onChange={(e) => setServerSearch(e.target.value)} placeholder="name, version, port..." />
+            </label>
+          ) : null}
           <label className="compact-field">
             Server
             <select value={selectedServerId ?? ""} onChange={(e) => setSelectedServerId(e.target.value || null)} disabled={servers.length === 0}>
@@ -3075,7 +3509,7 @@ export default function App() {
               ))}
             </select>
           </label>
-          {selectedServerId ? (
+          {selectedServerId && isAdvancedExperience ? (
             <>
               <button type="button" onClick={() => void serverAction(selectedServerId, "start")} disabled={!selectedCanStart}>
                 Start
@@ -3101,11 +3535,36 @@ export default function App() {
               ) : null}
             </>
           ) : null}
+          {selectedServerId && !isAdvancedExperience ? (
+            <>
+              {selectedCanStart ? (
+                <button type="button" onClick={() => void serverAction(selectedServerId, "start")}>
+                  Start
+                </button>
+              ) : null}
+              {!selectedCanStart && !simpleStatus?.server.inviteAddress ? (
+                <button type="button" onClick={() => void goLiveNow()}>
+                  Go Live
+                </button>
+              ) : null}
+              {simpleStatus?.server.inviteAddress ? (
+                <button type="button" onClick={() => copyAddress(simpleStatus.server.inviteAddress ?? "")}>
+                  Copy Invite
+                </button>
+              ) : null}
+              {(simpleStatus?.preflight.blocked || selectedServerStatus === "crashed") && (
+                <button type="button" onClick={() => setActiveView("manage")}>
+                  Open Fix
+                </button>
+              )}
+            </>
+          ) : null}
         </div>
       </section>
 
       {activeView === "overview" ? (
-        <>
+        isAdvancedExperience ? (
+          <>
           <section className="panel command-center">
             <h2>Command Center</h2>
             <p className="muted-note">
@@ -3530,137 +3989,238 @@ export default function App() {
             <section className="panel">
               <h2>Focus Mode Is On</h2>
               <p className="muted-note">
-                Showing streamlined controls only. Switch Layout to <code>Full Dashboard</code> for onboarding funnel, action queue, and extended flow details.
+                Showing streamlined controls only. Switch Layout to <code>Full Dashboard</code> for onboarding funnel, action queue, and fleet-level controls.
               </p>
             </section>
           )}
 
-          <section className="panel">
-            <h2>Bulk Operations</h2>
-            <p className="muted-note">
-              Select multiple servers and run one action across all of them.
-            </p>
-            <div className="inline-actions">
-              <span className="status-pill tone-neutral">{bulkSelectedServerIds.length} selected</span>
-              <button type="button" onClick={toggleSelectAllFilteredServers} disabled={filteredServers.length === 0}>
-                {allFilteredServersSelected ? "Clear Filtered Selection" : "Select Filtered"}
-              </button>
-              <button type="button" onClick={() => void runBulkServerAction("start")} disabled={bulkActionInFlight !== null}>
-                {bulkActionInFlight === "start" ? "Starting..." : "Start Selected"}
-              </button>
-              <button type="button" onClick={() => void runBulkServerAction("stop")} disabled={bulkActionInFlight !== null}>
-                {bulkActionInFlight === "stop" ? "Stopping..." : "Stop Selected"}
-              </button>
-              <button type="button" onClick={() => void runBulkServerAction("restart")} disabled={bulkActionInFlight !== null}>
-                {bulkActionInFlight === "restart" ? "Restarting..." : "Restart Selected"}
-              </button>
-              <button type="button" onClick={() => void runBulkServerAction("backup")} disabled={bulkActionInFlight !== null}>
-                {bulkActionInFlight === "backup" ? "Backing Up..." : "Backup Selected"}
-              </button>
-              <button type="button" onClick={() => void runBulkServerAction("goLive")} disabled={bulkActionInFlight !== null}>
-                {bulkActionInFlight === "goLive" ? "Publishing..." : "Go Live Selected"}
-              </button>
-            </div>
-          </section>
+          {!focusMode ? (
+            <>
+              <section className="panel">
+                <h2>Bulk Operations</h2>
+                <p className="muted-note">
+                  Select multiple servers and run one action across all of them.
+                </p>
+                <div className="inline-actions">
+                  <span className="status-pill tone-neutral">{bulkSelectedServerIds.length} selected</span>
+                  <button type="button" onClick={toggleSelectAllFilteredServers} disabled={filteredServers.length === 0}>
+                    {allFilteredServersSelected ? "Clear Filtered Selection" : "Select Filtered"}
+                  </button>
+                  <button type="button" onClick={() => void runBulkServerAction("start")} disabled={bulkActionInFlight !== null}>
+                    {bulkActionInFlight === "start" ? "Starting..." : "Start Selected"}
+                  </button>
+                  <button type="button" onClick={() => void runBulkServerAction("stop")} disabled={bulkActionInFlight !== null}>
+                    {bulkActionInFlight === "stop" ? "Stopping..." : "Stop Selected"}
+                  </button>
+                  <button type="button" onClick={() => void runBulkServerAction("restart")} disabled={bulkActionInFlight !== null}>
+                    {bulkActionInFlight === "restart" ? "Restarting..." : "Restart Selected"}
+                  </button>
+                  <button type="button" onClick={() => void runBulkServerAction("backup")} disabled={bulkActionInFlight !== null}>
+                    {bulkActionInFlight === "backup" ? "Backing Up..." : "Backup Selected"}
+                  </button>
+                  <button type="button" onClick={() => void runBulkServerAction("goLive")} disabled={bulkActionInFlight !== null}>
+                    {bulkActionInFlight === "goLive" ? "Publishing..." : "Go Live Selected"}
+                  </button>
+                </div>
+              </section>
 
-          <section className="panel">
-            <h2>Server Fleet</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>
-                    <label className="toggle">
-                      <input
-                        type="checkbox"
-                        checked={allFilteredServersSelected}
-                        onChange={toggleSelectAllFilteredServers}
-                        aria-label="Select filtered servers"
-                      />
-                    </label>
-                  </th>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Version</th>
-                  <th>Status</th>
-                  <th>Port</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredServers.map((server) => (
-                  <tr key={server.id} className={server.id === selectedServerId ? "selected" : ""}>
-                    <td>
-                      <label className="toggle">
-                        <input
-                          type="checkbox"
-                          checked={bulkSelectedSet.has(server.id)}
-                          onChange={() => toggleBulkServerSelection(server.id)}
-                          aria-label={`Select ${server.name}`}
-                        />
-                      </label>
-                    </td>
-                    <td>
-                      <button className="link-btn" onClick={() => setSelectedServerId(server.id)} type="button">
-                        {server.name}
-                      </button>
-                    </td>
-                    <td>{server.type}</td>
-                    <td>{server.mcVersion}</td>
-                    <td>
-                      <span className={`status-pill tone-${statusTone(server.status)}`}>{normalizeStatus(server.status)}</span>
-                    </td>
-                    <td>{server.port}</td>
-                    <td>
-                      <div className="inline-actions">
-                        <button onClick={() => void serverAction(server.id, "start")} type="button" disabled={!canStartServer(server.status)}>
-                          Start
-                        </button>
-                        <button onClick={() => void serverAction(server.id, "stop")} type="button" disabled={!canStopServer(server.status)}>
-                          Stop
-                        </button>
-                        <button
-                          onClick={() => void serverAction(server.id, "restart")}
-                          type="button"
-                          disabled={isServerTransitioning(server.status)}
-                        >
-                          Restart
-                        </button>
-                        <button onClick={() => void createBackup(server.id)} type="button">
-                          Backup
-                        </button>
-                        <button
-                          className="danger-btn"
-                          onClick={() => void deleteServer(server)}
-                          type="button"
-                          disabled={deletingServerId === server.id}
-                        >
-                          {deletingServerId === server.id ? "Deleting..." : "Delete"}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {servers.length === 0 ? (
-                  <tr>
-                    <td colSpan={7}>
-                      <div className="empty-table-note">No servers yet. Open `Setup` and run Instant Launch to create your first server.</div>
-                    </td>
-                  </tr>
-                ) : filteredServers.length === 0 ? (
-                  <tr>
-                    <td colSpan={7}>
-                      <div className="empty-table-note">No servers matched your search.</div>
-                    </td>
-                  </tr>
+              <section className="panel">
+                <h2>Server Fleet</h2>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>
+                        <label className="toggle">
+                          <input
+                            type="checkbox"
+                            checked={allFilteredServersSelected}
+                            onChange={toggleSelectAllFilteredServers}
+                            aria-label="Select filtered servers"
+                          />
+                        </label>
+                      </th>
+                      <th>Name</th>
+                      <th>Type</th>
+                      <th>Version</th>
+                      <th>Status</th>
+                      <th>Port</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredServers.map((server) => (
+                      <tr key={server.id} className={server.id === selectedServerId ? "selected" : ""}>
+                        <td>
+                          <label className="toggle">
+                            <input
+                              type="checkbox"
+                              checked={bulkSelectedSet.has(server.id)}
+                              onChange={() => toggleBulkServerSelection(server.id)}
+                              aria-label={`Select ${server.name}`}
+                            />
+                          </label>
+                        </td>
+                        <td>
+                          <button className="link-btn" onClick={() => setSelectedServerId(server.id)} type="button">
+                            {server.name}
+                          </button>
+                        </td>
+                        <td>{server.type}</td>
+                        <td>{server.mcVersion}</td>
+                        <td>
+                          <span className={`status-pill tone-${statusTone(server.status)}`}>{normalizeStatus(server.status)}</span>
+                        </td>
+                        <td>{server.port}</td>
+                        <td>
+                          <div className="inline-actions">
+                            <button onClick={() => void serverAction(server.id, "start")} type="button" disabled={!canStartServer(server.status)}>
+                              Start
+                            </button>
+                            <button onClick={() => void serverAction(server.id, "stop")} type="button" disabled={!canStopServer(server.status)}>
+                              Stop
+                            </button>
+                            <button
+                              onClick={() => void serverAction(server.id, "restart")}
+                              type="button"
+                              disabled={isServerTransitioning(server.status)}
+                            >
+                              Restart
+                            </button>
+                            <button onClick={() => void createBackup(server.id)} type="button">
+                              Backup
+                            </button>
+                            <button
+                              className="danger-btn"
+                              onClick={() => void deleteServer(server)}
+                              type="button"
+                              disabled={deletingServerId === server.id}
+                            >
+                              {deletingServerId === server.id ? "Deleting..." : "Delete"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {servers.length === 0 ? (
+                      <tr>
+                        <td colSpan={7}>
+                          <div className="empty-table-note">No servers yet. Open `Setup` and run Instant Launch to create your first server.</div>
+                        </td>
+                      </tr>
+                    ) : filteredServers.length === 0 ? (
+                      <tr>
+                        <td colSpan={7}>
+                          <div className="empty-table-note">No servers matched your search.</div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </section>
+            </>
+          ) : (
+            <section className="panel">
+              <h2>Fleet Controls Hidden in Focus Mode</h2>
+              <p className="muted-note">
+                Bulk actions and the full fleet table are intentionally hidden to reduce clutter for first-time operators.
+              </p>
+              <button type="button" onClick={() => setFocusMode(false)}>
+                Switch to Full Dashboard
+              </button>
+            </section>
+          )}
+          </>
+        ) : (
+          <>
+            <section className="panel command-center beginner-home">
+              <h2>Home</h2>
+              <p className="muted-note">One clear next step at a time. Advanced controls stay out of the way.</p>
+              <div className="beginner-primary-cta">
+                <span className={`status-pill ${beginnerPrimaryAction.tone}`}>Recommended</span>
+                <button type="button" className="primary-cta" onClick={runBeginnerPrimaryAction} disabled={busy}>
+                  {busy ? "Working..." : beginnerPrimaryAction.label}
+                </button>
+              </div>
+              <p className="muted-note">{beginnerPrimaryAction.detail}</p>
+              <div className="inline-actions">
+                <button type="button" onClick={() => setActiveView("setup")}>
+                  Create
+                </button>
+                {selectedServerId ? (
+                  <button type="button" onClick={() => setActiveView("share")}>
+                    Share
+                  </button>
                 ) : null}
-              </tbody>
-            </table>
-          </section>
-        </>
+                {selectedServerId ? (
+                  <button type="button" onClick={() => setActiveView("manage")}>
+                    Fix
+                  </button>
+                ) : null}
+              </div>
+            </section>
+
+            <section className="panel">
+              <h2>Server Progress</h2>
+              <ul className="list list-compact">
+                <li>
+                  <div>
+                    <strong>Created</strong>
+                    <span>{simpleStatus?.checklist.created ? "Server exists and is ready to use." : "No server created yet."}</span>
+                  </div>
+                  <span className={`status-pill ${simpleStatus?.checklist.created ? "tone-ok" : "tone-warn"}`}>
+                    {simpleStatus?.checklist.created ? "Done" : "Pending"}
+                  </span>
+                </li>
+                <li>
+                  <div>
+                    <strong>Running</strong>
+                    <span>
+                      {simpleStatus?.checklist.running
+                        ? "Server runtime is online."
+                        : "Start your server to allow players to connect."}
+                    </span>
+                  </div>
+                  <span className={`status-pill ${simpleStatus?.checklist.running ? "tone-ok" : "tone-warn"}`}>
+                    {simpleStatus?.checklist.running ? "Done" : "Pending"}
+                  </span>
+                </li>
+                <li>
+                  <div>
+                    <strong>Invite Address</strong>
+                    <span>
+                      {simpleStatus?.server.inviteAddress
+                        ? simpleStatus.server.inviteAddress
+                        : simpleStatus?.quickHosting.endpointPending
+                          ? "Waiting for endpoint assignment."
+                          : "No public invite yet."}
+                    </span>
+                  </div>
+                  <span className={`status-pill ${simpleStatus?.checklist.publicReady ? "tone-ok" : "tone-warn"}`}>
+                    {simpleStatus?.checklist.publicReady ? "Ready" : "Pending"}
+                  </span>
+                </li>
+              </ul>
+            </section>
+
+            {simpleStatus?.preflight.blocked ? (
+              <section className="panel">
+                <h2>Action Required</h2>
+                <p className="muted-note">
+                  {simpleStatus.preflight.issues.find((issue) => issue.severity === "critical")?.message ??
+                    "A startup issue is blocking this server."}
+                </p>
+                <button type="button" onClick={() => setActiveView("manage")}>
+                  Open Fix
+                </button>
+              </section>
+            ) : null}
+          </>
+        )
       ) : null}
 
       {activeView === "setup" ? (
-        <>
+        isAdvancedExperience ? (
+          <>
           <section className="panel">
             <h2>Guided Server Setup</h2>
             <p className="muted-note">
@@ -4030,11 +4590,345 @@ export default function App() {
               <p>Select a server to enable one-click public hosting.</p>
             )}
           </section>
+          </>
+        ) : (
+          <>
+            <section className="panel beginner-wizard">
+              <h2>Create</h2>
+              <p className="muted-note">Set up your server in four simple steps. Technical fields stay hidden.</p>
+              <ol className="wizard-stepper">
+                <li className={createWizardStep === 1 ? "active" : createWizardStep > 1 ? "done" : ""}>Server type</li>
+                <li className={createWizardStep === 2 ? "active" : createWizardStep > 2 ? "done" : ""}>World source</li>
+                <li className={createWizardStep === 3 ? "active" : createWizardStep > 3 ? "done" : ""}>Memory + location</li>
+                <li className={createWizardStep === 4 ? "active" : ""}>Review + launch</li>
+              </ol>
+
+              {createWizardError ? <div className="error-banner wizard-error">{createWizardError}</div> : null}
+
+              {createWizardStep === 1 ? (
+                <div className="grid-form">
+                  <label>
+                    Server Name
+                    <input
+                      value={createServer.name}
+                      onChange={(event) => setCreateServer((previous) => ({ ...previous, name: event.target.value }))}
+                      placeholder="My Server"
+                    />
+                  </label>
+                  <div>
+                    <strong>Server Type</strong>
+                    <div className="inline-actions wizard-option-row">
+                      <button
+                        type="button"
+                        className={createServer.type === "paper" ? "active" : ""}
+                        onClick={() => applyBeginnerServerType("paper")}
+                      >
+                        Paper (Recommended)
+                      </button>
+                      <button
+                        type="button"
+                        className={createServer.type === "vanilla" ? "active" : ""}
+                        onClick={() => applyBeginnerServerType("vanilla")}
+                      >
+                        Vanilla
+                      </button>
+                      <button
+                        type="button"
+                        className={createServer.type === "fabric" ? "active" : ""}
+                        onClick={() => applyBeginnerServerType("fabric")}
+                      >
+                        Fabric
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {createWizardStep === 2 ? (
+                <div className="grid-form">
+                  <label className="toggle">
+                    <input
+                      type="radio"
+                      name="worldSource"
+                      checked={createServer.worldSource === "new"}
+                      onChange={() => setCreateServer((previous) => ({ ...previous, worldSource: "new" }))}
+                    />
+                    Start a new world
+                  </label>
+                  <label className="toggle">
+                    <input
+                      type="radio"
+                      name="worldSource"
+                      checked={createServer.worldSource === "import"}
+                      onChange={() => setCreateServer((previous) => ({ ...previous, worldSource: "import" }))}
+                    />
+                    Import an existing world
+                  </label>
+                  {createServer.worldSource === "import" ? (
+                    <label>
+                      World Folder Path
+                      <input
+                        value={createServer.worldImportPath}
+                        onChange={(event) => setCreateServer((previous) => ({ ...previous, worldImportPath: event.target.value }))}
+                        placeholder="/path/to/world-folder"
+                      />
+                    </label>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {createWizardStep === 3 ? (
+                <div className="grid-form">
+                  <div>
+                    <strong>Memory</strong>
+                    <div className="inline-actions wizard-option-row">
+                      <button
+                        type="button"
+                        className={createServer.memoryPreset === "small" ? "active" : ""}
+                        onClick={() => setCreateServer((previous) => ({ ...previous, memoryPreset: "small" }))}
+                      >
+                        Small
+                      </button>
+                      <button
+                        type="button"
+                        className={createServer.memoryPreset === "recommended" ? "active" : ""}
+                        onClick={() => setCreateServer((previous) => ({ ...previous, memoryPreset: "recommended" }))}
+                      >
+                        Recommended
+                      </button>
+                      <button
+                        type="button"
+                        className={createServer.memoryPreset === "large" ? "active" : ""}
+                        onClick={() => setCreateServer((previous) => ({ ...previous, memoryPreset: "large" }))}
+                      >
+                        Large
+                      </button>
+                    </div>
+                  </div>
+                  <label>
+                    Save Location (optional)
+                    <input
+                      value={createServer.savePath}
+                      onChange={(event) => setCreateServer((previous) => ({ ...previous, savePath: event.target.value }))}
+                      placeholder="Use default if left blank"
+                    />
+                  </label>
+                  <label className="toggle">
+                    <input
+                      type="checkbox"
+                      checked={createServer.quickPublicHosting}
+                      onChange={(event) => setCreateServer((previous) => ({ ...previous, quickPublicHosting: event.target.checked }))}
+                    />
+                    Enable quick hosting automatically
+                  </label>
+                </div>
+              ) : null}
+
+              {createWizardStep === 4 ? (
+                <section className="panel review-card">
+                  <h3>Review</h3>
+                  <ul className="list list-compact">
+                    <li>
+                      <div>
+                        <strong>Name</strong>
+                        <span>{createServer.name}</span>
+                      </div>
+                    </li>
+                    <li>
+                      <div>
+                        <strong>Type</strong>
+                        <span>{createServer.type}</span>
+                      </div>
+                    </li>
+                    <li>
+                      <div>
+                        <strong>World</strong>
+                        <span>{createServer.worldSource === "import" ? "Import existing world" : "Start new world"}</span>
+                      </div>
+                    </li>
+                    <li>
+                      <div>
+                        <strong>Memory</strong>
+                        <span>{createServer.memoryPreset}</span>
+                      </div>
+                    </li>
+                    <li>
+                      <div>
+                        <strong>Hosting</strong>
+                        <span>{createServer.quickPublicHosting ? "Quick hosting enabled" : "Local network only"}</span>
+                      </div>
+                    </li>
+                  </ul>
+                </section>
+              ) : null}
+
+              <div className="inline-actions">
+                {createWizardStep > 1 ? (
+                  <button type="button" onClick={goToPreviousCreateWizardStep}>
+                    Back
+                  </button>
+                ) : null}
+                {createWizardStep < 4 ? (
+                  <button type="button" onClick={goToNextCreateWizardStep}>
+                    Next
+                  </button>
+                ) : (
+                  <button type="button" className="primary-cta" onClick={() => void launchBeginnerWizard()} disabled={busy}>
+                    {busy ? "Creating..." : "Create and Launch"}
+                  </button>
+                )}
+              </div>
+            </section>
+          </>
+        )
+      ) : null}
+
+      {activeView === "share" ? (
+        <>
+          <section className="panel">
+            <h2>Share</h2>
+            <p className="muted-note">Invite players with one address. We handle tunnel setup in the background.</p>
+            <div className="invite-card">
+              <p className="muted-note">Invite Address</p>
+              <p>
+                <code>{simpleStatus?.server.inviteAddress ?? (simpleStatus?.quickHosting.endpointPending ? "Assigning endpoint..." : "Not live yet")}</code>
+              </p>
+              {simpleStatus?.quickHosting.endpointPending ? (
+                <p className="muted-note">
+                  Endpoint assignment is still pending. Keep the app open, then retry endpoint check in a few seconds.
+                </p>
+              ) : null}
+              <div className="inline-actions">
+                <button
+                  type="button"
+                  onClick={() => copyAddress(simpleStatus?.server.inviteAddress ?? "")}
+                  disabled={!simpleStatus?.server.inviteAddress}
+                >
+                  Copy Address
+                </button>
+                <button type="button" onClick={() => void runNetworkFix("refresh_diagnostics")} disabled={!selectedServerId}>
+                  Retry Endpoint Check
+                </button>
+                <button type="button" onClick={() => setShowPlayitSecretForm(true)} disabled={!quickHostingDiagnostics?.diagnostics}>
+                  Set Playit Secret
+                </button>
+              </div>
+              {showPlayitSecretForm ? (
+                <div className="playit-secret-form">
+                  <label>
+                    Playit Secret
+                    <input
+                      type="password"
+                      value={playitSecretInput}
+                      onChange={(event) => setPlayitSecretInput(event.target.value)}
+                      placeholder="Paste Agent-Key or secret_key value"
+                    />
+                  </label>
+                  <div className="inline-actions">
+                    <button type="button" onClick={() => void savePlayitSecret()} disabled={savingPlayitSecret}>
+                      {savingPlayitSecret ? "Saving..." : "Save Secret"}
+                    </button>
+                    <button type="button" onClick={() => setShowPlayitSecretForm(false)} disabled={savingPlayitSecret}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="panel">
+            <h2>Go Live Progress</h2>
+            <ul className="list list-compact">
+              <li>
+                <div>
+                  <strong>Server Running</strong>
+                  <span>{simpleStatus?.checklist.running ? "Ready" : "Start the server first."}</span>
+                </div>
+                <span className={`status-pill ${simpleStatus?.checklist.running ? "tone-ok" : "tone-warn"}`}>
+                  {simpleStatus?.checklist.running ? "Done" : "Pending"}
+                </span>
+              </li>
+              <li>
+                <div>
+                  <strong>Quick Hosting</strong>
+                  <span>{simpleStatus?.quickHosting.enabled ? "Enabled" : "Enable hosting to generate an invite address."}</span>
+                </div>
+                <span className={`status-pill ${simpleStatus?.quickHosting.enabled ? "tone-ok" : "tone-warn"}`}>
+                  {simpleStatus?.quickHosting.enabled ? "Enabled" : "Disabled"}
+                </span>
+              </li>
+              <li>
+                <div>
+                  <strong>Public Endpoint</strong>
+                  <span>{simpleStatus?.server.inviteAddress ?? "Waiting for endpoint assignment."}</span>
+                </div>
+                <span className={`status-pill ${simpleStatus?.checklist.publicReady ? "tone-ok" : "tone-warn"}`}>
+                  {simpleStatus?.checklist.publicReady ? "Ready" : "Pending"}
+                </span>
+              </li>
+            </ul>
+          </section>
+
+          <details className="panel">
+            <summary>Show technical details</summary>
+            {quickHostingDiagnostics?.diagnostics ? (
+              <>
+                <ul className="list list-compact">
+                  <li>
+                    <div>
+                      <strong>Tunnel Provider</strong>
+                      <span>{quickHostingDiagnostics.diagnostics.provider}</span>
+                    </div>
+                    <span className={`status-pill tone-${statusTone(quickHostingDiagnostics.diagnostics.status)}`}>
+                      {normalizeStatus(quickHostingDiagnostics.diagnostics.status)}
+                    </span>
+                  </li>
+                  <li>
+                    <div>
+                      <strong>Endpoint</strong>
+                      <span>{quickHostingDiagnostics.diagnostics.endpoint ?? "Pending"}</span>
+                    </div>
+                  </li>
+                  <li>
+                    <div>
+                      <strong>Message</strong>
+                      <span>{quickHostingDiagnostics.diagnostics.message ?? "No diagnostics message."}</span>
+                    </div>
+                  </li>
+                </ul>
+                {showPlayitSecretForm || quickHostingDiagnostics.diagnostics.authConfigured === false ? (
+                  <div className="playit-secret-form">
+                    <label>
+                      Playit Secret
+                      <input
+                        type="password"
+                        value={playitSecretInput}
+                        onChange={(event) => setPlayitSecretInput(event.target.value)}
+                        placeholder="Paste Agent-Key or secret_key value"
+                      />
+                    </label>
+                    <div className="inline-actions">
+                      <button type="button" onClick={() => void savePlayitSecret()} disabled={savingPlayitSecret}>
+                        {savingPlayitSecret ? "Saving..." : "Save Secret"}
+                      </button>
+                      <button type="button" onClick={() => setShowPlayitSecretForm(false)} disabled={savingPlayitSecret}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <p className="muted-note">No technical diagnostics yet.</p>
+            )}
+          </details>
         </>
       ) : null}
 
       {activeView === "manage" ? (
-        <>
+        isAdvancedExperience ? (
+          <>
           <section className="panel crash-doctor-panel">
             <h2>Crash Doctor</h2>
             <p className="muted-note">Guided recovery runbook with auto-actions for startup failures and broken tunnel sessions.</p>
@@ -4606,10 +5500,79 @@ export default function App() {
               </ul>
             </article>
           </section>
-        </>
+          </>
+        ) : (
+          <>
+            <section className="panel beginner-fix">
+              <h2>Fix</h2>
+              <p className="muted-note">Use one button first. If needed, guided manual steps are available below.</p>
+              <div className="inline-actions">
+                <button type="button" className="primary-cta" onClick={() => void runAutomaticSimpleFix()} disabled={!selectedServerId || runningSimpleFix}>
+                  {runningSimpleFix ? "Running Automatic Fix..." : "Run Automatic Fix"}
+                </button>
+                {selectedServerId ? (
+                  <button type="button" onClick={() => void refreshServerOperations(selectedServerId)}>
+                    Refresh Status
+                  </button>
+                ) : null}
+              </div>
+              {simpleFixResult ? (
+                <div className="fix-result-card">
+                  <h3>
+                    {simpleFixResult.status === "fixed"
+                      ? "Fixed"
+                      : simpleFixResult.status === "blocked"
+                        ? "Blocked with reason"
+                        : "Needs manual step"}
+                  </h3>
+                  <p className="muted-note">{simpleFixResult.summary}</p>
+                  <p className="muted-note">{simpleFixResult.message}</p>
+                  {simpleFixResult.completed.length > 0 ? (
+                    <ul className="list list-compact">
+                      {simpleFixResult.completed.map((step) => (
+                        <li key={step}>
+                          <div>
+                            <span>{step}</span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
+
+            <details className="panel">
+              <summary>Manual recovery steps</summary>
+              <p className="muted-note">Use these only if automatic fix could not fully recover your server.</p>
+              <div className="inline-actions">
+                {selectedServerId ? (
+                  <button type="button" onClick={() => void runCrashDoctor()} disabled={runningCrashDoctor}>
+                    {runningCrashDoctor ? "Running..." : "Run Crash Doctor"}
+                  </button>
+                ) : null}
+                {selectedServerId && hasRepairablePreflightIssue ? (
+                  <button type="button" onClick={() => void repairCoreStartupFiles()} disabled={repairingCore}>
+                    {repairingCore ? "Repairing..." : "Repair Core Files"}
+                  </button>
+                ) : null}
+                {selectedServerId ? (
+                  <button type="button" onClick={() => void rollbackLatestServerPropertiesSnapshot()} disabled={rollingBackConfig}>
+                    {rollingBackConfig ? "Rolling Back..." : "Rollback Latest Config"}
+                  </button>
+                ) : null}
+                {selectedServerId ? (
+                  <button type="button" onClick={() => void safeRestartServer()} disabled={safeRestarting}>
+                    {safeRestarting ? "Restarting..." : "Safe Restart"}
+                  </button>
+                ) : null}
+              </div>
+            </details>
+          </>
+        )
       ) : null}
 
-      {activeView === "content" ? (
+      {activeView === "content" && isAdvancedExperience ? (
         <section className="dual-grid">
           <article className="panel">
             <h2>Content Manager</h2>
@@ -4725,7 +5688,7 @@ export default function App() {
         </section>
       ) : null}
 
-      {activeView === "trust" ? (
+      {activeView === "trust" && isAdvancedExperience ? (
         <>
           <section className="panel">
             <h2>Security Transparency</h2>
@@ -4876,7 +5839,7 @@ export default function App() {
           <section className="panel">
             <h2>Advanced Workspace</h2>
             <p className="muted-note">
-              Advanced mode keeps expert tools available while Beginner mode stays focused on simple goals.
+              You are in Advanced Controls. This workspace keeps expert tools available without cluttering beginner flows.
             </p>
           </section>
 

@@ -47,3 +47,6 @@ jobs:
 
       - name: UI e2e tests
         run: npm run test:e2e
+
+      - name: UI live smoke
+        run: npm run test:ui:live

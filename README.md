@@ -4,10 +4,10 @@ SimpleServers is an open-source, local-first Minecraft server hosting and admini
 
 It is designed as a stronger open alternative to closed desktop hosts: fast setup, safer operations, and richer owner tooling.
 
-Latest stable desktop release: `v0.5.1`
+Latest stable desktop release: `v0.5.2`
 
 - Releases: `https://github.com/dueldev/SimpleServers/releases`
-- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.5.1`
+- Current release: `https://github.com/dueldev/SimpleServers/releases/tag/v0.5.2`
 
 ## Production Features
 
@@ -27,9 +27,9 @@ Latest stable desktop release: `v0.5.1`
 - One-click quick public hosting with no-router-setup flow (plus tunnel providers: `manual`, `playit`, `cloudflared`, `ngrok`).
   - `playit` dependency bootstraps automatically on Linux/Windows and via Homebrew on macOS when available.
 - One-click Instant Launch flow: create + provision + start + quick-host in a single action.
-- Simplified, progressive dashboard UX with focused views (`Overview`, `Setup`, `Manage`, `Content`, `Advanced`).
+- Beginner-first app UX with focused primary tabs (`Home`, `Create`, `Share`, `Fix`) and isolated `Advanced Controls`.
 - Guided setup preset cards with plain-language recommendations for non-technical hosts.
-- Startup Wizard flow for first-run operators (`Create -> Start -> Publish`).
+- 4-step Create wizard flow (`Server Type -> World Source -> Memory/Location -> Review/Launch`).
 - Command Center workflow with two primary CTAs (`Create Server`, `Go Live`) for non-technical operators.
 - Goal-first operation cards (`Start`, `Share`, `Fix`) to reduce dead-end paths.
 - Network Health panel with one-click fix actions for dependency/auth/endpoint/retry states.
@@ -152,6 +152,7 @@ export SIMPLESERVERS_REMOTE_TOKEN='replace-this-too'
 - On first launch, the desktop app boots an embedded API and then loads the UI.
 - A startup screen is shown while services initialize.
 - The app writes startup diagnostics to a desktop log for fast triage.
+- `v0.5.2` ships an app-first beginner UX default (`Home/Create/Share/Fix`), adds aggregated beginner APIs (`/system/capabilities`, `/servers/:id/simple-status`, `/servers/:id/simple-fix`), and hardens refresh/error handling to reduce silent failures.
 - `v0.5.1` fixes repeat Instant Launch naming collisions by auto-resolving duplicate server names and adds a live UI smoke test workflow (`npm run test:ui:live`) for desktop/mobile usability checks.
 - `v0.5.0` adds a major UX/functionality pass: focus layout mode, Playit secret setup flow, stronger endpoint matching, and simplified operator paths.
 - `v0.4.1` hardens command-palette action safety, strengthens tunnel recovery fixes, and adds deeper validation pass coverage across API/web/desktop flows.

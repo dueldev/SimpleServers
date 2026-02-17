@@ -2,6 +2,7 @@ import cors from "@fastify/cors";
 import sensible from "@fastify/sensible";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
+import { ZodError } from "zod";
 import { closeDb, migrate } from "./lib/db.js";
 import { loadConfig, type AppConfig } from "./lib/config.js";
 import { store } from "./repositories/store.js";
@@ -134,6 +135,55 @@ export async function createApiApp(options?: {
   await app.register(sensible);
   await app.register(websocket);
 
+  app.setErrorHandler((error, request, reply) => {
+    if (reply.sent) {
+      return;
+    }
+
+    let statusCode = Number((error as { statusCode?: number }).statusCode ?? 500);
+    if (!Number.isFinite(statusCode) || statusCode < 400 || statusCode > 599) {
+      statusCode = 500;
+    }
+
+    let code = typeof (error as { code?: unknown }).code === "string" ? String((error as { code?: string }).code) : "";
+    let message = typeof (error as { message?: unknown }).message === "string" ? (error as { message: string }).message : "Request failed";
+    let details: Record<string, unknown> | undefined;
+
+    if (error instanceof ZodError) {
+      statusCode = 400;
+      code = "validation_error";
+      message = error.issues.map((issue) => issue.message).join("; ") || "Validation failed";
+      details = {
+        issues: error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+          code: issue.code
+        }))
+      };
+    }
+
+    if (!code) {
+      code = statusCode >= 500 ? "internal_error" : "request_error";
+    }
+
+    const payload: {
+      code: string;
+      message: string;
+      details?: Record<string, unknown>;
+      error: string;
+    } = {
+      code,
+      message,
+      error: message
+    };
+    if (details) {
+      payload.details = details;
+    }
+
+    request.log.error({ err: error, code, statusCode }, "request failed");
+    reply.code(statusCode).send(payload);
+  });
+
   app.addHook("onRequest", async (request, reply) => {
     if (isLoopbackIp(request.ip)) {
       return;
@@ -141,7 +191,12 @@ export async function createApiApp(options?: {
 
     const remote = remoteControl.getStatus();
     if (!remote.enabled) {
-      reply.code(403).send({ error: "Remote mode is disabled for non-local requests" });
+      const message = "Remote mode is disabled for non-local requests";
+      reply.code(403).send({
+        code: "remote_mode_disabled",
+        message,
+        error: message
+      });
       return;
     }
 
@@ -150,7 +205,16 @@ export async function createApiApp(options?: {
     const token = typeof header === "string" ? header : Array.isArray(header) ? header[0] : undefined;
     const validation = remoteControl.validateRemoteRequest(origin, token);
     if (!validation.ok) {
-      reply.code(403).send({ error: `Remote request rejected (${validation.reason ?? "unknown"})` });
+      const reason = validation.reason ?? "unknown";
+      const message = `Remote request rejected (${reason})`;
+      reply.code(403).send({
+        code: "remote_request_rejected",
+        message,
+        details: {
+          reason
+        },
+        error: message
+      });
       return;
     }
   });

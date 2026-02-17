@@ -104,6 +104,7 @@ body {
   margin: 0;
   color: var(--text);
   font-family: "Sora", "Avenir Next", "Segoe UI", sans-serif;
+  line-height: 1.45;
   background:
     radial-gradient(circle at 8% 8%, var(--bg-grad-a), transparent 38%),
     radial-gradient(circle at 92% 12%, var(--bg-grad-b), transparent 38%),
@@ -121,10 +122,10 @@ a {
 }
 
 .app-shell {
-  width: min(1320px, 95vw);
-  margin: 18px auto 70px;
+  width: min(1380px, 95vw);
+  margin: 16px auto 72px;
   display: grid;
-  gap: 14px;
+  gap: 16px;
 }
 
 .hero {
@@ -175,12 +176,18 @@ a {
   border-radius: var(--radius);
   padding: 16px;
   box-shadow: var(--panel-shadow);
+  backdrop-filter: blur(6px);
   animation: panel-rise 280ms ease both;
 }
 
 .panel h2,
 .panel h3 {
   margin: 0 0 8px;
+}
+
+.panel h2 {
+  font-size: 1.08rem;
+  letter-spacing: -0.012em;
 }
 
 .skip-link {
@@ -266,26 +273,121 @@ a {
   color: var(--text);
 }
 
+.beginner-home {
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--border));
+}
+
+.beginner-primary-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 8px;
+}
+
+.beginner-primary-cta .primary-cta {
+  min-width: 220px;
+}
+
+.invite-card {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: linear-gradient(165deg, color-mix(in srgb, var(--surface-strong) 88%, transparent), color-mix(in srgb, var(--surface) 92%, transparent));
+}
+
+.wizard-stepper {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.wizard-stepper li {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  text-align: center;
+  color: var(--text-soft);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+
+.wizard-stepper li.active {
+  border-color: color-mix(in srgb, var(--primary) 68%, var(--border));
+  color: var(--text);
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.wizard-stepper li.done {
+  border-color: rgba(68, 221, 186, 0.4);
+  color: #8debd8;
+  background: rgba(68, 221, 186, 0.16);
+}
+
+.wizard-option-row button.active {
+  border-color: var(--primary);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--primary) 26%, transparent), color-mix(in srgb, var(--surface-strong) 80%, transparent));
+}
+
+.wizard-error {
+  margin: 8px 0;
+}
+
+.review-card {
+  margin-top: 8px;
+}
+
+.fix-result-card {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--surface-strong) 90%, transparent), color-mix(in srgb, var(--surface) 94%, transparent));
+}
+
+.fix-result-card h3 {
+  margin: 0 0 6px;
+}
+
 .control-strip {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+  position: sticky;
+  top: 10px;
+  z-index: 30;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--border));
+  background: linear-gradient(155deg, color-mix(in srgb, var(--surface-strong) 90%, transparent), color-mix(in srgb, var(--surface) 92%, transparent));
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 24px rgba(2, 10, 20, 0.24);
 }
 
 .view-nav {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
+  padding: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
 }
 
 .view-nav button {
-  background: var(--surface-strong);
+  background: transparent;
   border-color: var(--border);
   color: var(--text);
   min-width: 94px;
   font-weight: 600;
+  border-radius: 999px;
+  padding: 9px 14px;
 }
 
 .view-nav button.active {
@@ -905,6 +1007,19 @@ th {
     flex: 1 1 calc(50% - 8px);
   }
 
+  .wizard-stepper {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .beginner-primary-cta {
+    align-items: stretch;
+  }
+
+  .control-strip {
+    position: static;
+    top: auto;
+  }
+
   .inline-actions {
     width: 100%;
   }
@@ -924,5 +1039,15 @@ th {
   .command-palette {
     width: 100%;
     border-radius: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel {
+    animation: none;
+  }
+
+  button {
+    transition: none;
   }
 }

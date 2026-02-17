@@ -7,6 +7,15 @@ Base URL: `http://127.0.0.1:4010`
 - `x-api-token`: required for protected endpoints.
 - `x-remote-token`: required for non-local access when remote-control mode is enabled with token enforcement.
 
+## Error envelope (additive, non-breaking)
+
+Error responses include:
+
+- `code: string`
+- `message: string`
+- `details?: Record<string, unknown>`
+- `error: string` (legacy compatibility field)
+
 ## Core
 
 - `GET /health`
@@ -24,6 +33,7 @@ Base URL: `http://127.0.0.1:4010`
 - `GET /system/status`
 - `GET /system/hardware`
 - `GET /system/trust`
+- `GET /system/capabilities`
 
 `GET /setup/presets` returns the guided setup profiles:
 - `custom`
@@ -48,10 +58,12 @@ Base URL: `http://127.0.0.1:4010`
 - `POST /servers/:id/stop` (`moderator`)
 - `POST /servers/:id/restart` (`moderator`)
 - `POST /servers/:id/safe-restart` (`admin`, stop -> preflight -> start)
+- `POST /servers/:id/simple-fix` (`admin`, one-click beginner recovery with deterministic status payload)
 - `POST /servers/:id/go-live` (`admin`, one-call start + quick-host tunnel activation)
 - `POST /servers/:id/command` (`moderator`)
 - `GET /servers/:id/logs`
 - `GET /servers/:id/preflight`
+- `GET /servers/:id/simple-status` (aggregated beginner status/checklist/primary action)
 - `GET /servers/:id/performance/advisor?hours=<1-336>`
 - `POST /servers/:id/preflight/repair-core` (`admin`, requires stopped server)
 - `GET /servers/:id/support-bundle`
@@ -64,6 +76,12 @@ Base URL: `http://127.0.0.1:4010`
 - port `25565`
 - `startServer=true`
 - `publicHosting=true`
+
+`POST /servers/quickstart` optional beginner-wizard inputs:
+
+- `memoryPreset`: `small` | `recommended` | `large`
+- `savePath`: parent directory where server folder should be created
+- `worldImportPath`: local world folder to import into the new server
 
 `POST /servers/bulk-action` response includes per-server status results, plus aggregate `total/succeeded/failed`.
 

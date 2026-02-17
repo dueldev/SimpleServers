@@ -8,7 +8,7 @@ Canonical repository: `https://github.com/dueldev/SimpleServers`
 
 - CI: `.github/workflows/ci.yml`
   - matrix on `ubuntu-latest`, `macos-latest`, `windows-latest`
-  - typecheck, build, API integration tests, UI e2e tests
+  - typecheck, build, API integration tests, UI e2e tests, UI live smoke
 - Desktop release: `.github/workflows/release-desktop.yml`
   - matrix packaging on macOS/Windows/Linux
   - tag `v*` pushes run publish-enabled packaging
@@ -95,6 +95,13 @@ Default log paths:
 
 ## Recent Release Notes
 
+- `v0.5.2`
+  - Shipped app-first beginner UX default (`Home`, `Create`, `Share`, `Fix`) with advanced tooling moved behind explicit `Advanced Controls`.
+  - Added beginner API capability/status/recovery endpoints (`/system/capabilities`, `/servers/:id/simple-status`, `/servers/:id/simple-fix`).
+  - Extended quickstart inputs for wizard-first onboarding (`memoryPreset`, `savePath`, `worldImportPath`).
+  - Standardized API error envelope fields (`code`, `message`, optional `details`) with backward-compatible `error` message support.
+  - Hardened UI refresh behavior using `Promise.allSettled` + role-gated privileged fetches to prevent viewer-mode hard failures.
+  - Re-validated release gates with `typecheck`, `build`, `test:api`, `test:e2e`, and `test:ui:live`.
 - `v0.5.1`
   - Fixed repeat Instant Launch failures caused by duplicate default server names (`UNIQUE constraint failed: servers.name`) by auto-resolving quickstart names.
   - Added explicit duplicate-name conflict handling for manual server creation with a user-facing `409` response.

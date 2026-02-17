@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import type { ApiServices } from "../src/app.js";
 
 const testDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "simpleservers-api-test-"));
 process.env.SIMPLESERVERS_DATA_DIR = testDataDir;
@@ -12,6 +13,7 @@ process.env.LOG_LEVEL = "error";
 
 let app: FastifyInstance;
 let store: typeof import("../src/repositories/store.js").store;
+let services: ApiServices;
 
 beforeAll(async () => {
   const [{ createApiApp }, storeModule] = await Promise.all([import("../src/app.js"), import("../src/repositories/store.js")]);
@@ -22,6 +24,7 @@ beforeAll(async () => {
   });
 
   app = created.app;
+  services = created.services;
 });
 
 afterAll(async () => {
@@ -88,7 +91,7 @@ describe("api integration", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().build.appVersion).toBe("0.5.1");
+    expect(response.json().build.appVersion).toBe("0.5.2");
     expect(response.json().security.localOnlyByDefault).toBe(true);
     expect(response.json().security.authModel).toBe("token-rbac");
   });
@@ -155,6 +158,11 @@ describe("api integration", () => {
     });
 
     expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({
+      code: "missing_api_token",
+      message: "Missing x-api-token",
+      error: "Missing x-api-token"
+    });
   });
 
   it("returns owner identity with default token", async () => {
@@ -168,6 +176,29 @@ describe("api integration", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().user.username).toBe("owner");
+  });
+
+  it("returns role capabilities for current user", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/system/capabilities",
+      headers: {
+        "x-api-token": "test-owner-token"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().user).toMatchObject({
+      username: "owner",
+      role: "owner"
+    });
+    expect(response.json().capabilities).toMatchObject({
+      serverLifecycle: true,
+      serverCreate: true,
+      advancedWorkspace: true,
+      userManage: true,
+      auditRead: true
+    });
   });
 
   it("returns conflict when creating a server with a duplicate name", async () => {
@@ -222,6 +253,42 @@ describe("api integration", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().user.username).toBe("ops-admin");
+  });
+
+  it("allows viewer core data access even when audit endpoint is forbidden", async () => {
+    const viewerCreate = await app.inject({
+      method: "POST",
+      url: "/users",
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {
+        username: "ops-viewer",
+        role: "viewer",
+        apiToken: "ops-viewer-token"
+      }
+    });
+    expect(viewerCreate.statusCode).toBe(200);
+
+    const auditResponse = await app.inject({
+      method: "GET",
+      url: "/audit",
+      headers: {
+        "x-api-token": "ops-viewer-token"
+      }
+    });
+    expect(auditResponse.statusCode).toBe(403);
+    expect(auditResponse.json().code).toBe("insufficient_role");
+
+    const serversResponse = await app.inject({
+      method: "GET",
+      url: "/servers",
+      headers: {
+        "x-api-token": "ops-viewer-token"
+      }
+    });
+    expect(serversResponse.statusCode).toBe(200);
+    expect(Array.isArray(serversResponse.json().servers)).toBe(true);
   });
 
   it("rotates a user token", async () => {
@@ -634,6 +701,51 @@ describe("api integration", () => {
     expect(status.json().steps[0]).toContain("assigning a public endpoint");
   });
 
+  it("returns beginner simple status payload", async () => {
+    const serverRoot = path.join(testDataDir, "servers", "simple-status-server");
+    fs.mkdirSync(serverRoot, { recursive: true });
+    fs.writeFileSync(path.join(serverRoot, "server.jar"), "placeholder", "utf8");
+    fs.writeFileSync(path.join(serverRoot, "eula.txt"), "eula=true\n", "utf8");
+
+    const server = store.createServer({
+      name: "simple-status-server",
+      type: "paper",
+      mcVersion: "1.21.11",
+      jarPath: path.join(serverRoot, "server.jar"),
+      rootPath: serverRoot,
+      javaPath: "java",
+      port: 25614,
+      bedrockPort: null,
+      minMemoryMb: 1024,
+      maxMemoryMb: 2048
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/servers/${server.id}/simple-status`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().server).toMatchObject({
+      id: server.id,
+      name: "simple-status-server",
+      inviteAddress: null
+    });
+    expect(response.json().checklist).toMatchObject({
+      created: true,
+      running: false,
+      publicReady: false
+    });
+    expect(response.json().primaryAction).toMatchObject({
+      id: "start_server",
+      label: "Start Server",
+      available: true
+    });
+  });
+
   it("blocks safe restart when preflight has critical issues", async () => {
     const serverRoot = path.join(testDataDir, "servers", "safe-restart-blocked-server");
     fs.mkdirSync(serverRoot, { recursive: true });
@@ -1001,6 +1113,108 @@ describe("api integration", () => {
     expect(startTunnel.json().message).toContain("missing-tunnel-command");
   });
 
+  it("supports beginner quickstart inputs for memory preset, save path, and world import", async () => {
+    const worldImportDir = path.join(testDataDir, "imports", "wizard-world");
+    const saveParent = path.join(testDataDir, "custom-saves");
+    fs.mkdirSync(path.join(worldImportDir, "region"), { recursive: true });
+    fs.writeFileSync(path.join(worldImportDir, "level.dat"), "world-data", "utf8");
+    fs.writeFileSync(path.join(worldImportDir, "region", "r.0.0.mca"), "region-data", "utf8");
+
+    const originalProvision = services.setup.provisionServer.bind(services.setup);
+    services.setup.provisionServer = async (input) => {
+      fs.mkdirSync(input.rootPath, { recursive: true });
+      const jarPath = path.join(input.rootPath, "server.jar");
+      fs.writeFileSync(jarPath, "placeholder", "utf8");
+      fs.writeFileSync(path.join(input.rootPath, "eula.txt"), "eula=true\n", "utf8");
+      fs.writeFileSync(path.join(input.rootPath, "server.properties"), "motd=quickstart\n", "utf8");
+      return { jarPath };
+    };
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/servers/quickstart",
+        headers: {
+          "x-api-token": "test-owner-token"
+        },
+        payload: {
+          name: "Wizard Server",
+          type: "paper",
+          preset: "survival",
+          memoryPreset: "large",
+          savePath: saveParent,
+          worldImportPath: worldImportDir,
+          startServer: false,
+          publicHosting: false
+        }
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().requested).toMatchObject({
+        memoryPreset: "large",
+        savePath: saveParent,
+        worldImportPath: worldImportDir
+      });
+
+      const serverId = response.json().server.id as string;
+      const createdServer = store.getServerById(serverId);
+      expect(createdServer).toBeDefined();
+      expect(createdServer?.rootPath.startsWith(path.resolve(saveParent))).toBe(true);
+      expect(fs.existsSync(path.join(createdServer!.rootPath, "world", "level.dat"))).toBe(true);
+      expect(fs.existsSync(path.join(createdServer!.rootPath, "world", "region", "r.0.0.mca"))).toBe(true);
+      expect(createdServer!.maxMemoryMb).toBeGreaterThanOrEqual(4096);
+    } finally {
+      services.setup.provisionServer = originalProvision;
+    }
+  });
+
+  it("returns deterministic simple-fix outcome payload", async () => {
+    const serverRoot = path.join(testDataDir, "servers", "simple-fix-server");
+    fs.mkdirSync(serverRoot, { recursive: true });
+    fs.writeFileSync(path.join(serverRoot, "server.jar"), "placeholder", "utf8");
+    fs.writeFileSync(path.join(serverRoot, "eula.txt"), "eula=true\n", "utf8");
+    fs.writeFileSync(path.join(serverRoot, "server.properties"), "motd=current\n", "utf8");
+
+    const server = store.createServer({
+      name: "simple-fix-server",
+      type: "paper",
+      mcVersion: "1.21.11",
+      jarPath: path.join(serverRoot, "server.jar"),
+      rootPath: serverRoot,
+      javaPath: "java",
+      port: 25615,
+      bedrockPort: null,
+      minMemoryMb: 1024,
+      maxMemoryMb: 2048
+    });
+
+    store.createEditorFileSnapshot({
+      serverId: server.id,
+      path: "server.properties",
+      content: "motd=restored\n",
+      reason: "manual_test"
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/servers/${server.id}/simple-fix`,
+      headers: {
+        "x-api-token": "test-owner-token"
+      },
+      payload: {}
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      status: expect.stringMatching(/^(fixed|blocked|needs_manual)$/),
+      code: expect.any(String),
+      message: expect.any(String),
+      summary: expect.any(String),
+      completed: expect.any(Array),
+      warnings: expect.any(Array)
+    });
+  });
+
   it("validates quickstart payload", async () => {
     const response = await app.inject({
       method: "POST",
@@ -1014,6 +1228,9 @@ describe("api integration", () => {
     });
 
     expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBeDefined();
+    expect(response.json().message).toBeDefined();
+    expect(response.json().error).toBeDefined();
   });
 
   it("validates content search against server existence", async () => {
